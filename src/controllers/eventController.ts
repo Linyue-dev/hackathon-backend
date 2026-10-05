@@ -25,6 +25,8 @@ async function createEvent(req: Request, res: Response) {
       startDatetime,
       endDatetime,
       judgingFormId,
+      theme,
+      description,
     } = req.body;
     const event = await eventModel.addEvent(
       name,
@@ -34,6 +36,8 @@ async function createEvent(req: Request, res: Response) {
       startDatetime,
       endDatetime,
       judgingFormId,
+      theme,
+      description,
     );
     res.status(201).json(event);
   } catch (err) {

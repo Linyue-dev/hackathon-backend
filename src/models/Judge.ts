@@ -8,6 +8,11 @@ import {
 } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
+import {
+  isValidEmail,
+  normalizeEmail,
+  pickFields,
+} from "../utils/validateUtils.js";
 
 let client: MongoClient;
 export let judgesCollection: Collection<Judge>;
@@ -18,14 +23,31 @@ export interface Judge {
   _id?: ObjectId;
   firstName: string;
   lastName: string;
-  email?: string;
+  email: string;
+  phone?: string;
   affiliation?: string;
   isTechnical: boolean;
+  isScience: boolean;
+  proficiency: "beginner" | "intermediate" | "advanced";
   yearsParticipated: number[];
+  notes?: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
+const PROFICIENCY_LEVELS = ["beginner", "intermediate", "advanced"] as const;
+const UPDATABLE_FIELDS = [
+  "firstName",
+  "lastName",
+  "email",
+  "phone",
+  "affiliation",
+  "isTechnical",
+  "isScience",
+  "proficiency",
+  "yearsParticipated",
+  "notes",
+] as const;
 /**
  * Connect to the database and prepare the judges collection.
  */
@@ -67,10 +89,14 @@ export async function initialize(
 export async function addJudge(
   firstName: string,
   lastName: string,
-  email?: string,
+  email: string,
   affiliation?: string,
   isTechnical: boolean = false,
+  isScience: boolean = false,
+  proficiency: Judge["proficiency"] = "beginner",
   yearsParticipated: number[] = [],
+  phone?: string,
+  notes?: string,
 ): Promise<Judge> {
   if (!judgesCollection)
     throw new DatabaseError("Database Collection object not initialized");
@@ -79,15 +105,36 @@ export async function addJudge(
     throw new InvalidInputError("Invalid input: judge firstName is empty");
   if (!lastName)
     throw new InvalidInputError("Invalid input: judge lastName is empty");
+  if (!email)
+    throw new InvalidInputError("Invalid input: judge email is empty");
+  if (!isValidEmail(email))
+    throw new InvalidInputError(
+      `Invalid input: '${email}' is not a valid email`,
+    );
+  if (!PROFICIENCY_LEVELS.includes(proficiency))
+    throw new InvalidInputError(
+      `Invalid input: proficiency '${proficiency}' is not valid`,
+    );
+
+  const normalizedEmail = normalizeEmail(email);
+  const existing = await judgesCollection.findOne({ email: normalizedEmail });
+  if (existing)
+    throw new InvalidInputError(
+      `A judge with the email ${email} already exists`,
+    );
 
   const now = new Date();
   const judge: Judge = {
     firstName,
     lastName,
-    email,
+    email: normalizedEmail,
     affiliation,
     isTechnical,
+    isScience,
+    proficiency,
     yearsParticipated,
+    phone,
+    notes,
     createdAt: now,
     updatedAt: now,
   };
@@ -165,11 +212,6 @@ export async function updateJudgeById(
   if (!judgesCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
-  if (Object.keys(updates).length === 0)
-    throw new InvalidInputError(
-      "Update judge error: at least one field must be provided",
-    );
-
   let objectId: ObjectId;
   try {
     objectId = new ObjectId(id);
@@ -179,6 +221,28 @@ export async function updateJudgeById(
     );
   }
 
+  const cleanUpdates = pickFields(updates, UPDATABLE_FIELDS);
+  if (Object.keys(cleanUpdates).length === 0)
+    throw new InvalidInputError(
+      "Update judge error: at least one valid field must be provided",
+    );
+
+  if (cleanUpdates.email !== undefined) {
+    if (!isValidEmail(cleanUpdates.email))
+      throw new InvalidInputError(
+        `Invalid input: '${cleanUpdates.email}' is not a valid email`,
+      );
+    cleanUpdates.email = normalizeEmail(cleanUpdates.email);
+  }
+
+  if (
+    cleanUpdates.proficiency !== undefined &&
+    !PROFICIENCY_LEVELS.includes(cleanUpdates.proficiency)
+  )
+    throw new InvalidInputError(
+      `Invalid input: proficiency '${cleanUpdates.proficiency}' is not valid`,
+    );
+
   try {
     const oldJudge = await judgesCollection.findOne<Judge>({ _id: objectId });
     if (!oldJudge)
@@ -186,9 +250,22 @@ export async function updateJudgeById(
         `The judge you are trying to update doesn't exist (id ${id})`,
       );
 
+    if (
+      cleanUpdates.email !== undefined &&
+      cleanUpdates.email !== oldJudge.email
+    ) {
+      const duplicate = await judgesCollection.findOne({
+        email: cleanUpdates.email,
+      });
+      if (duplicate)
+        throw new InvalidInputError(
+          `A judge with the email ${cleanUpdates.email} already exists`,
+        );
+    }
+
     const newJudge: Judge = {
       ...oldJudge,
-      ...updates,
+      ...cleanUpdates,
       updatedAt: new Date(),
     };
 
@@ -207,7 +284,6 @@ export async function updateJudgeById(
     else throw new Error("Unknown error " + err);
   }
 }
-
 //#endregion
 
 //#region Delete functions

@@ -8,6 +8,7 @@ import {
 } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
+import { pickFields, toDate } from "../utils/validateUtils.js";
 
 let client: MongoClient;
 export let eventsCollection: Collection<Event>;
@@ -17,6 +18,8 @@ const collectionName: string = "events";
 export interface Event {
   _id?: ObjectId;
   name: string;
+  theme?: string;
+  description?: string;
   status:
     | "planning"
     | "in-progress"
@@ -31,7 +34,29 @@ export interface Event {
   createdAt: Date;
   updatedAt: Date;
 }
+const EVENT_STATUSES = [
+  "planning",
+  "in-progress",
+  "judging-started",
+  "judging-ended",
+  "complete",
+] as const;
 
+const UPDATABLE_FIELDS = [
+  "name",
+  "theme",
+  "description",
+  "status",
+  "logoUrl",
+  "location",
+  "startDatetime",
+  "endDatetime",
+  "judgingFormId",
+] as const;
+
+function isValidStatus(value: unknown): value is Event["status"] {
+  return EVENT_STATUSES.some((s) => s === value);
+}
 /**
  * Connect to the database and prepare the events collection.
  * @param url The MongoDB connection URL.
@@ -81,35 +106,39 @@ export async function addEvent(
   status: string = "planning",
   logoUrl?: string,
   location?: string,
-  startDatetime?: Date,
-  endDatetime?: Date,
+  startDatetime?: Date | string,
+  endDatetime?: Date | string,
   judgingFormId?: string,
+  theme?: string,
+  description?: string,
 ): Promise<Event> {
   if (!eventsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
   if (!name) throw new InvalidInputError("Invalid input: event name is empty");
 
-  const validStatuses = [
-    "planning",
-    "in-progress",
-    "judging-started",
-    "judging-ended",
-    "complete",
-  ];
-  if (!validStatuses.includes(status))
+  if (!isValidStatus(status))
     throw new InvalidInputError(
       `Invalid input: status '${status}' is not valid`,
+    );
+
+  const start = toDate(startDatetime);
+  const end = toDate(endDatetime);
+  if (start && end && end < start)
+    throw new InvalidInputError(
+      "Invalid input: endDatetime must be after startDatetime",
     );
 
   const now = new Date();
   const event: Event = {
     name,
-    status: status as Event["status"],
+    theme,
+    description,
+    status,
     logoUrl,
     location,
-    startDatetime,
-    endDatetime,
+    startDatetime: start,
+    endDatetime: end,
     judgingFormId,
     createdAt: now,
     updatedAt: now,
@@ -197,11 +226,6 @@ export async function updateEventById(
   if (!eventsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
-  if (Object.keys(updates).length === 0)
-    throw new InvalidInputError(
-      "Update event error: at least one field must be provided",
-    );
-
   let objectId: ObjectId;
   try {
     objectId = new ObjectId(id);
@@ -210,6 +234,21 @@ export async function updateEventById(
       `Update Event: the id ${id} is not in the valid format (24 hexadecimal characters)`,
     );
   }
+
+  const cleanUpdates = pickFields(updates, UPDATABLE_FIELDS);
+  if (Object.keys(cleanUpdates).length === 0)
+    throw new InvalidInputError(
+      "Update event error: at least one valid field must be provided",
+    );
+
+  if (cleanUpdates.status !== undefined && !isValidStatus(cleanUpdates.status))
+    throw new InvalidInputError(
+      `Invalid input: status '${String(cleanUpdates.status)}' is not valid`,
+    );
+  if (cleanUpdates.startDatetime !== undefined)
+    cleanUpdates.startDatetime = toDate(cleanUpdates.startDatetime);
+  if (cleanUpdates.endDatetime !== undefined)
+    cleanUpdates.endDatetime = toDate(cleanUpdates.endDatetime);
 
   try {
     const oldEvent = await eventsCollection.findOne<Event>({ _id: objectId });
@@ -220,9 +259,18 @@ export async function updateEventById(
 
     const newEvent: Event = {
       ...oldEvent,
-      ...updates,
+      ...cleanUpdates,
       updatedAt: new Date(),
     };
+
+    if (
+      newEvent.startDatetime &&
+      newEvent.endDatetime &&
+      newEvent.endDatetime < newEvent.startDatetime
+    )
+      throw new InvalidInputError(
+        "Invalid input: endDatetime must be after startDatetime",
+      );
 
     const replaced = await eventsCollection.findOneAndReplace(
       { _id: objectId },
@@ -239,7 +287,6 @@ export async function updateEventById(
     else throw new Error("Unknown error " + err);
   }
 }
-
 //#endregion
 
 //#region Delete functions

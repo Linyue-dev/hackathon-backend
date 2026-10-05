@@ -23,7 +23,11 @@ async function createJudge(req: Request, res: Response) {
       email,
       affiliation,
       isTechnical,
+      isScience,
+      proficiency,
       yearsParticipated,
+      phone,
+      notes,
     } = req.body;
     const judge = await judgeModel.addJudge(
       firstName,
@@ -31,7 +35,11 @@ async function createJudge(req: Request, res: Response) {
       email,
       affiliation,
       isTechnical,
+      isScience,
+      proficiency,
       yearsParticipated,
+      phone,
+      notes,
     );
     res.status(201).json(judge);
   } catch (err) {
