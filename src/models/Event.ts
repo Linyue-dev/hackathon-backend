@@ -54,9 +54,6 @@ const UPDATABLE_FIELDS = [
   "judgingFormId",
 ] as const;
 
-function isValidStatus(value: unknown): value is Event["status"] {
-  return EVENT_STATUSES.some((s) => s === value);
-}
 /**
  * Connect to the database and prepare the events collection.
  * @param url The MongoDB connection URL.
@@ -354,3 +351,8 @@ export function getCollection(): Collection<Event> {
   }
   return eventsCollection;
 }
+//#region Helpers
+function isValidStatus(value: unknown): value is Event["status"] {
+  return EVENT_STATUSES.some((s) => s === value);
+}
+//#endregion

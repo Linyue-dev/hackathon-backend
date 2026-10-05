@@ -9,6 +9,7 @@ const controllers: string[] = [
   "eventController.js",
   "judgingFormController.js",
   "judgeController.js",
+  "teamController.js",
 ];
 
 async function registerControllers() {
