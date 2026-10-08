@@ -24,7 +24,6 @@ export interface JudgingAssignment {
   judgeId: string;
   teamId: string;
   status: "pending" | "in-progress" | "completed";
-  hasConflict: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,7 +32,6 @@ export interface NewJudgingAssignmentInput {
   eventId: string;
   judgeId: string;
   teamId: string;
-  hasConflict?: boolean;
 }
 
 export interface JudgingAssignmentFilter {
@@ -45,7 +43,7 @@ export interface JudgingAssignmentFilter {
 const ASSIGNMENT_STATUSES = ["pending", "in-progress", "completed"] as const;
 
 // Ids and eventId/judgeId/teamId can never be changed after creation.
-const UPDATABLE_FIELDS = ["status", "hasConflict"] as const;
+const UPDATABLE_FIELDS = ["status"] as const;
 
 /**
  * Connect to the database and prepare the judgingAssignments collection.
@@ -95,15 +93,10 @@ export async function addJudgingAssignment(
     throw new DatabaseError("Database Collection object not initialized");
 
   const { eventId, judgeId, teamId } = input;
-  const hasConflict = input.hasConflict ?? false;
 
   assertIdString(eventId, "eventId");
   assertIdString(judgeId, "judgeId");
   assertIdString(teamId, "teamId");
-  if (typeof hasConflict !== "boolean")
-    throw new InvalidInputError(
-      "Invalid input: hasConflict must be true or false",
-    );
 
   // Each of these throws InvalidInputError if the record does not exist
   await eventModel.getEventById(eventId);
@@ -135,7 +128,6 @@ export async function addJudgingAssignment(
     judgeId,
     teamId,
     status: "pending",
-    hasConflict,
     createdAt: now,
     updatedAt: now,
   };
@@ -256,13 +248,6 @@ export async function updateJudgingAssignmentById(
   if (cleanUpdates.status !== undefined && !isValidStatus(cleanUpdates.status))
     throw new InvalidInputError(
       `Invalid input: status '${String(cleanUpdates.status)}' is not valid`,
-    );
-  if (
-    cleanUpdates.hasConflict !== undefined &&
-    typeof cleanUpdates.hasConflict !== "boolean"
-  )
-    throw new InvalidInputError(
-      "Invalid input: hasConflict must be true or false",
     );
 
   try {
