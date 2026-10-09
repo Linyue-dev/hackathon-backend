@@ -8,7 +8,7 @@ import {
 } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
-import { pickFields } from "../utils/validateUtils.js";
+import { assertOnlyAllowedFields, pickFields } from "../utils/validateUtils.js";
 import * as eventModel from "./Event.js";
 import * as judgeModel from "./Judge.js";
 import * as teamModel from "./Team.js";
@@ -239,14 +239,7 @@ export async function updateJudgingAssignmentById(
     );
   }
 
-  // new: reject fields that can never be updated
-  const unknownFields = Object.keys(updates).filter(
-    (key) => !(UPDATABLE_FIELDS as readonly string[]).includes(key),
-  );
-  if (unknownFields.length > 0)
-    throw new InvalidInputError(
-      `Invalid input: these fields cannot be updated: ${unknownFields.join(", ")}`,
-    );
+  assertOnlyAllowedFields(updates, UPDATABLE_FIELDS);
 
   const cleanUpdates = pickFields(updates, UPDATABLE_FIELDS);
   if (Object.keys(cleanUpdates).length === 0)
