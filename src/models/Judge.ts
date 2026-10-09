@@ -9,6 +9,7 @@ import {
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
 import {
+  assertOnlyAllowedFields,
   isValidEmail,
   normalizeEmail,
   pickFields,
@@ -26,7 +27,6 @@ export interface Judge {
   email: string;
   phone?: string;
   affiliation?: string;
-  isTechnical: boolean;
   isScience: boolean;
   proficiency: "beginner" | "intermediate" | "advanced";
   yearsParticipated: number[];
@@ -35,6 +35,17 @@ export interface Judge {
   updatedAt: Date;
 }
 
+export interface NewJudgeInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  affiliation?: string;
+  isScience?: boolean;
+  proficiency?: Judge["proficiency"];
+  yearsParticipated?: number[];
+  phone?: string;
+  notes?: string;
+}
 const PROFICIENCY_LEVELS = ["beginner", "intermediate", "advanced"] as const;
 const UPDATABLE_FIELDS = [
   "firstName",
@@ -42,7 +53,6 @@ const UPDATABLE_FIELDS = [
   "email",
   "phone",
   "affiliation",
-  "isTechnical",
   "isScience",
   "proficiency",
   "yearsParticipated",
@@ -86,20 +96,21 @@ export async function initialize(
 
 //#region Add functions
 
-export async function addJudge(
-  firstName: string,
-  lastName: string,
-  email: string,
-  affiliation?: string,
-  isTechnical: boolean = false,
-  isScience: boolean = false,
-  proficiency: Judge["proficiency"] = "beginner",
-  yearsParticipated: number[] = [],
-  phone?: string,
-  notes?: string,
-): Promise<Judge> {
+export async function addJudge(input: NewJudgeInput): Promise<Judge> {
   if (!judgesCollection)
     throw new DatabaseError("Database Collection object not initialized");
+
+  const {
+    firstName,
+    lastName,
+    email,
+    affiliation,
+    phone,
+    notes,
+    isScience = false,
+    proficiency = "beginner",
+    yearsParticipated = [],
+  } = input;
 
   if (!firstName)
     throw new InvalidInputError("Invalid input: judge firstName is empty");
@@ -129,7 +140,6 @@ export async function addJudge(
     lastName,
     email: normalizedEmail,
     affiliation,
-    isTechnical,
     isScience,
     proficiency,
     yearsParticipated,
@@ -220,6 +230,8 @@ export async function updateJudgeById(
       `Update Judge: the id ${id} is not in the valid format (24 hexadecimal characters)`,
     );
   }
+
+  assertOnlyAllowedFields(updates, UPDATABLE_FIELDS);
 
   const cleanUpdates = pickFields(updates, UPDATABLE_FIELDS);
   if (Object.keys(cleanUpdates).length === 0)
