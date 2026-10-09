@@ -8,7 +8,11 @@ import {
 } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
-import { assertOnlyAllowedFields, pickFields } from "../utils/validateUtils.js";
+import {
+  assertOnlyAllowedFields,
+  pickFields,
+  toDate,
+} from "../utils/validateUtils.js";
 import * as eventModel from "./Event.js";
 import * as judgeModel from "./Judge.js";
 import * as teamModel from "./Team.js";
@@ -24,6 +28,7 @@ export interface JudgingAssignment {
   judgeId: string;
   teamId: string;
   status: "pending" | "in-progress" | "completed";
+  slotAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,6 +37,7 @@ export interface NewJudgingAssignmentInput {
   eventId: string;
   judgeId: string;
   teamId: string;
+  slotAt?: Date | string;
 }
 
 export interface JudgingAssignmentFilter {
@@ -43,7 +49,7 @@ export interface JudgingAssignmentFilter {
 const ASSIGNMENT_STATUSES = ["pending", "in-progress", "completed"] as const;
 
 // Ids and eventId/judgeId/teamId can never be changed after creation.
-const UPDATABLE_FIELDS = ["status"] as const;
+const UPDATABLE_FIELDS = ["status", "slotAt"] as const;
 
 /**
  * Connect to the database and prepare the judgingAssignments collection.
@@ -92,12 +98,12 @@ export async function addJudgingAssignment(
   if (!judgingAssignmentsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
-  const { eventId, judgeId, teamId } = input;
+  const { eventId, judgeId, teamId, slotAt } = input;
 
   assertIdString(eventId, "eventId");
   assertIdString(judgeId, "judgeId");
   assertIdString(teamId, "teamId");
-
+  const slot = toDate(slotAt);
   // Each of these throws InvalidInputError if the record does not exist
   await eventModel.getEventById(eventId);
   await judgeModel.getJudgeById(judgeId);
@@ -128,6 +134,7 @@ export async function addJudgingAssignment(
     judgeId,
     teamId,
     status: "pending",
+    slotAt: slot,
     createdAt: now,
     updatedAt: now,
   };
@@ -251,6 +258,9 @@ export async function updateJudgingAssignmentById(
     throw new InvalidInputError(
       `Invalid input: status '${String(cleanUpdates.status)}' is not valid`,
     );
+
+  if (cleanUpdates.slotAt !== undefined)
+    cleanUpdates.slotAt = toDate(cleanUpdates.slotAt);
 
   try {
     const oldAssignment =
