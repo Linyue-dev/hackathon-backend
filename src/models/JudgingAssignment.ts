@@ -239,6 +239,15 @@ export async function updateJudgingAssignmentById(
     );
   }
 
+  // new: reject fields that can never be updated
+  const unknownFields = Object.keys(updates).filter(
+    (key) => !(UPDATABLE_FIELDS as readonly string[]).includes(key),
+  );
+  if (unknownFields.length > 0)
+    throw new InvalidInputError(
+      `Invalid input: these fields cannot be updated: ${unknownFields.join(", ")}`,
+    );
+
   const cleanUpdates = pickFields(updates, UPDATABLE_FIELDS);
   if (Object.keys(cleanUpdates).length === 0)
     throw new InvalidInputError(
