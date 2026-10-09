@@ -48,3 +48,16 @@ export function toDate(value: unknown): Date | undefined {
     );
   return date;
 }
+const PASSWORD_MIN_LENGTH = 8;
+
+/**
+ * Returns an error message if the password is too weak, otherwise null.
+ * Rule from the sign-up screen: at least 8 characters, including a number.
+ */
+export function getPasswordError(password: unknown): string | null {
+  if (typeof password !== "string" || password.length < PASSWORD_MIN_LENGTH)
+    return `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
+  if (!/[0-9]/.test(password))
+    return "Password must include at least one number";
+  return null;
+}
