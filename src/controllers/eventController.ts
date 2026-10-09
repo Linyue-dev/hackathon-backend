@@ -20,25 +20,29 @@ async function createEvent(req: Request, res: Response) {
     const {
       name,
       status,
+      theme,
+      description,
+      address,
+      rooms,
+      arrivalNotes,
       logoUrl,
       location,
       startDatetime,
       endDatetime,
-      judgingFormId,
-      theme,
-      description,
     } = req.body;
-    const event = await eventModel.addEvent(
+    const event = await eventModel.addEvent({
       name,
       status,
+      theme,
+      description,
+      address,
+      rooms,
+      arrivalNotes,
       logoUrl,
       location,
       startDatetime,
       endDatetime,
-      judgingFormId,
-      theme,
-      description,
-    );
+    });
     res.status(201).json(event);
   } catch (err) {
     handleError(err, res);
