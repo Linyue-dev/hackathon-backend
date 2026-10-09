@@ -9,6 +9,7 @@ import {
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
 import {
+  assertOnlyAllowedFields,
   isValidEmail,
   normalizeEmail,
   pickFields,
@@ -34,15 +35,15 @@ export interface Team {
   eventId: string;
   name: string;
   tableNumber?: number;
-  location?: string;
+  room?: string;
   members: TeamMember[];
   schools: string[];
   projectUrl?: string;
   projectDescription?: string;
   status: "active" | "disqualified" | "withdrawn";
-  eligibilities: string[];
-  verifiedEligibilities: string[];
-  appliedAwardIds: string[];
+  source: "manual" | "devpost";
+  devpostId?: string;
+  importedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,30 +52,29 @@ export interface NewTeamInput {
   eventId: string;
   name: string;
   tableNumber?: number;
-  location?: string;
+  room?: string;
   members?: TeamMember[];
   schools?: string[];
   projectUrl?: string;
   projectDescription?: string;
   status?: string;
-  eligibilities?: string[];
-  appliedAwardIds?: string[];
+  source?: string;
+  devpostId?: string;
 }
 
 const TEAM_STATUSES = ["active", "disqualified", "withdrawn"] as const;
-
+const TEAM_SOURCES = ["manual", "devpost"] as const;
+// source, devpostId and importedAt are set when the team is created or
+// imported, so they are not editable afterwards.
 const UPDATABLE_FIELDS = [
   "name",
   "tableNumber",
-  "location",
+  "room",
   "members",
   "schools",
   "projectUrl",
   "projectDescription",
   "status",
-  "eligibilities",
-  "verifiedEligibilities",
-  "appliedAwardIds",
 ] as const;
 
 /**
@@ -116,8 +116,7 @@ export async function initialize(
 //#region Add functions
 
 /**
- * Add a new team to an event. verifiedEligibilities always starts empty:
- * only staff can confirm eligibilities later.
+ * Add a new team to an event.
  */
 export async function addTeam(input: NewTeamInput): Promise<Team> {
   if (!teamsCollection)
@@ -127,15 +126,15 @@ export async function addTeam(input: NewTeamInput): Promise<Team> {
     eventId,
     name,
     tableNumber,
-    location,
+    room,
+    devpostId,
     projectUrl,
     projectDescription,
   } = input;
   const members = input.members ?? [];
   const schools = input.schools ?? [];
-  const eligibilities = input.eligibilities ?? [];
-  const appliedAwardIds = input.appliedAwardIds ?? [];
   const status = input.status ?? "active";
+  const source = input.source ?? "manual";
 
   if (!eventId) throw new InvalidInputError("Invalid input: eventId is empty");
   if (!name) throw new InvalidInputError("Invalid input: team name is empty");
@@ -143,11 +142,17 @@ export async function addTeam(input: NewTeamInput): Promise<Team> {
     throw new InvalidInputError(
       `Invalid input: status '${status}' is not valid`,
     );
+  if (!isValidSource(source))
+    throw new InvalidInputError(
+      `Invalid input: source '${source}' is not valid`,
+    );
+  if (devpostId !== undefined && (typeof devpostId !== "string" || !devpostId))
+    throw new InvalidInputError(
+      "Invalid input: devpostId must be a non-empty string",
+    );
   if (tableNumber !== undefined) validateTableNumber(tableNumber);
   validateMembers(members);
   validateStringArray(schools, "schools");
-  validateStringArray(eligibilities, "eligibilities");
-  validateStringArray(appliedAwardIds, "appliedAwardIds");
 
   // Throws InvalidInputError if the event does not exist
   await eventModel.getEventById(eventId);
@@ -160,15 +165,15 @@ export async function addTeam(input: NewTeamInput): Promise<Team> {
     eventId,
     name,
     tableNumber,
-    location,
+    room,
     members: normalizeMembers(members),
     schools,
     projectUrl,
     projectDescription,
     status,
-    eligibilities,
-    verifiedEligibilities: [],
-    appliedAwardIds,
+    source,
+    devpostId,
+    importedAt: source === "devpost" ? now : undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -257,6 +262,7 @@ export async function updateTeamById(
       `Update Team: the id ${id} is not in the valid format (24 hexadecimal characters)`,
     );
   }
+  assertOnlyAllowedFields(updates, UPDATABLE_FIELDS);
 
   const cleanUpdates = pickFields(updates, UPDATABLE_FIELDS);
   if (Object.keys(cleanUpdates).length === 0)
@@ -278,15 +284,6 @@ export async function updateTeamById(
   }
   if (cleanUpdates.schools !== undefined)
     validateStringArray(cleanUpdates.schools, "schools");
-  if (cleanUpdates.eligibilities !== undefined)
-    validateStringArray(cleanUpdates.eligibilities, "eligibilities");
-  if (cleanUpdates.verifiedEligibilities !== undefined)
-    validateStringArray(
-      cleanUpdates.verifiedEligibilities,
-      "verifiedEligibilities",
-    );
-  if (cleanUpdates.appliedAwardIds !== undefined)
-    validateStringArray(cleanUpdates.appliedAwardIds, "appliedAwardIds");
 
   try {
     const oldTeam = await teamsCollection.findOne<Team>({ _id: objectId });
@@ -310,15 +307,6 @@ export async function updateTeamById(
       ...cleanUpdates,
       updatedAt: new Date(),
     };
-
-    // Staff can only confirm eligibilities the team actually claimed
-    const unclaimed = newTeam.verifiedEligibilities.filter(
-      (tag) => !newTeam.eligibilities.includes(tag),
-    );
-    if (unclaimed.length > 0)
-      throw new InvalidInputError(
-        `Invalid input: cannot verify eligibilities the team did not claim: ${unclaimed.join(", ")}`,
-      );
 
     const replaced = await teamsCollection.findOneAndReplace(
       { _id: objectId },
@@ -398,6 +386,7 @@ export function getCollection(): Collection<Team> {
 }
 
 //#region Helpers
+
 function isValidStatus(value: unknown): value is Team["status"] {
   return TEAM_STATUSES.some((s) => s === value);
 }
@@ -461,4 +450,7 @@ async function assertTableNumberFree(
     );
 }
 
+function isValidSource(value: unknown): value is Team["source"] {
+  return TEAM_SOURCES.some((s) => s === value);
+}
 //#endregion
