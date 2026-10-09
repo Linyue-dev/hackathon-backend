@@ -48,3 +48,18 @@ export function toDate(value: unknown): Date | undefined {
     );
   return date;
 }
+/**
+ * Reject an update that contains fields which are not allowed to change.
+ */
+export function assertOnlyAllowedFields(
+  source: object,
+  allowedFields: readonly string[],
+): void {
+  const rejected = Object.keys(source).filter(
+    (key) => !allowedFields.includes(key),
+  );
+  if (rejected.length > 0)
+    throw new InvalidInputError(
+      `These fields cannot be updated: ${rejected.join(", ")}`,
+    );
+}

@@ -8,7 +8,11 @@ import {
 } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
-import { pickFields, toDate } from "../utils/validateUtils.js";
+import {
+  assertOnlyAllowedFields,
+  pickFields,
+  toDate,
+} from "../utils/validateUtils.js";
 
 let client: MongoClient;
 export let eventsCollection: Collection<Event>;
@@ -270,6 +274,8 @@ export async function updateEventById(
       `Update Event: the id ${id} is not in the valid format (24 hexadecimal characters)`,
     );
   }
+  
+  assertOnlyAllowedFields(updates, UPDATABLE_FIELDS);
 
   const cleanUpdates = pickFields(updates, UPDATABLE_FIELDS);
   if (Object.keys(cleanUpdates).length === 0)
