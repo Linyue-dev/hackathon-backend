@@ -10,10 +10,10 @@ export const routeRoot = "/api/users";
 router.post("/", createUser);
 router.get("/", getUsers);
 router.get("/:id", getUserById);
-router.put("/:id", updateUser);
+router.patch("/:id", updateUser);
 router.post("/:id/approve", approveUser);
 router.post("/:id/decline", declineUser);
-router.put("/:id/role", changeUserRole);
+router.patch("/:id/role", changeUserRole);
 router.delete("/:id", deleteUser);
 
 // ============ Handlers ============

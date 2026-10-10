@@ -14,6 +14,7 @@ import {
   normalizeEmail,
   pickFields,
   getPasswordError,
+  assertOnlyAllowedFields,
 } from "../utils/validateUtils.js";
 
 let client: MongoClient;
@@ -50,7 +51,7 @@ const ASSIGNABLE_ROLES = ["admin", "organizer", "viewer"] as const;
 const SALT_ROUNDS = 10;
 
 // Role and status are never changed through the normal update.
-const UPDATABLE_FIELDS = ["firstName", "lastName", "email", "phone"] as const;
+const UPDATABLE_FIELDS = ["firstName", "lastName", "phone"] as const;
 
 /**
  * Connect to the database and prepare the users collection.
@@ -91,8 +92,8 @@ export async function initialize(
 //#region Add functions
 
 /**
- * Sign up a new account. It starts as a pending viewer, except the very first
- * account, which becomes the active Owner.
+ * Sign up a new account. It starts as a pending viewer, except the account
+ * whose email matches OWNER_EMAIL, which becomes the active Owner.
  */
 export async function addUser(input: NewUserInput): Promise<PublicUser> {
   if (!usersCollection)
@@ -121,8 +122,16 @@ export async function addUser(input: NewUserInput): Promise<PublicUser> {
         `An account with the email ${email} already exists`,
       );
 
-    const isFirstUser =
-      (await usersCollection.countDocuments({}, { limit: 1 })) === 0;
+    // The Owner is whoever signs up with the configured OWNER_EMAIL,
+    // but only while no Owner exists yet (there is only ever one Owner).
+    const ownerEmail = process.env.OWNER_EMAIL;
+    const matchesOwnerEmail =
+      !!ownerEmail && normalizedEmail === normalizeEmail(ownerEmail);
+    const ownerExists = matchesOwnerEmail
+      ? (await usersCollection.findOne({ role: "owner" })) !== null
+      : false;
+    const isOwner = matchesOwnerEmail && !ownerExists;
+
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
     const now = new Date();
@@ -132,8 +141,8 @@ export async function addUser(input: NewUserInput): Promise<PublicUser> {
       email: normalizedEmail,
       passwordHash,
       phone,
-      role: isFirstUser ? "owner" : "viewer",
-      status: isFirstUser ? "active" : "pending",
+      role: isOwner ? "owner" : "viewer",
+      status: isOwner ? "active" : "pending",
       createdAt: now,
       updatedAt: now,
     };
@@ -193,17 +202,11 @@ export async function getAllUsers(
  */
 export async function updateUserById(
   id: string,
-  updates: Partial<Pick<User, "firstName" | "lastName" | "email" | "phone">>,
+  updates: Partial<Pick<User, "firstName" | "lastName" | "phone">>,
 ): Promise<PublicUser> {
   const oldUser = await findUserById(id);
 
-  const unknownFields = Object.keys(updates).filter(
-    (key) => !(UPDATABLE_FIELDS as readonly string[]).includes(key),
-  );
-  if (unknownFields.length > 0)
-    throw new InvalidInputError(
-      `Invalid input: these fields cannot be updated: ${unknownFields.join(", ")}`,
-    );
+  assertOnlyAllowedFields(updates, UPDATABLE_FIELDS);
 
   const cleanUpdates = pickFields(updates, UPDATABLE_FIELDS);
   if (Object.keys(cleanUpdates).length === 0)
@@ -216,27 +219,7 @@ export async function updateUserById(
   if (cleanUpdates.lastName !== undefined && !cleanUpdates.lastName)
     throw new InvalidInputError("Invalid input: user lastName is empty");
 
-  if (cleanUpdates.email !== undefined) {
-    if (!isValidEmail(cleanUpdates.email))
-      throw new InvalidInputError(
-        `Invalid input: '${cleanUpdates.email}' is not a valid email`,
-      );
-    cleanUpdates.email = normalizeEmail(cleanUpdates.email);
-  }
-
   try {
-    if (
-      cleanUpdates.email !== undefined &&
-      cleanUpdates.email !== oldUser.email
-    ) {
-      const duplicate = await usersCollection.findOne({
-        email: cleanUpdates.email,
-      });
-      if (duplicate)
-        throw new InvalidInputError(
-          `An account with the email ${cleanUpdates.email} already exists`,
-        );
-    }
     return await saveChanges(oldUser._id, cleanUpdates);
   } catch (err: unknown) {
     if (err instanceof InvalidInputError) throw err;
