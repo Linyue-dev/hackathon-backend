@@ -61,3 +61,18 @@ export function getPasswordError(password: unknown): string | null {
     return "Password must include at least one number";
   return null;
 }
+/**
+ * Reject an update that contains fields which are not allowed to change.
+ */
+export function assertOnlyAllowedFields(
+  source: object,
+  allowedFields: readonly string[],
+): void {
+  const rejected = Object.keys(source).filter(
+    (key) => !allowedFields.includes(key),
+  );
+  if (rejected.length > 0)
+    throw new InvalidInputError(
+      `These fields cannot be updated: ${rejected.join(", ")}`,
+    );
+}

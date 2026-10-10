@@ -22,25 +22,23 @@ async function createJudge(req: Request, res: Response) {
       lastName,
       email,
       affiliation,
-      isTechnical,
       isScience,
       proficiency,
       yearsParticipated,
       phone,
       notes,
     } = req.body;
-    const judge = await judgeModel.addJudge(
+    const judge = await judgeModel.addJudge({
       firstName,
       lastName,
       email,
       affiliation,
-      isTechnical,
       isScience,
       proficiency,
       yearsParticipated,
       phone,
       notes,
-    );
+    });
     res.status(201).json(judge);
   } catch (err) {
     handleError(err, res);

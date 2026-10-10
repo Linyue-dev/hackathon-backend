@@ -17,11 +17,12 @@ router.delete("/:id", deleteJudgingAssignment);
 
 async function createJudgingAssignment(req: Request, res: Response) {
   try {
-    const { eventId, judgeId, teamId } = req.body;
+    const { eventId, judgeId, teamId, slotAt } = req.body;
     const assignment = await judgingAssignmentModel.addJudgingAssignment({
       eventId,
       judgeId,
       teamId,
+      slotAt,
     });
     res.status(201).json(assignment);
   } catch (err) {
