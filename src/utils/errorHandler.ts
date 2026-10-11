@@ -1,18 +1,26 @@
 import type { Response } from "express";
-import { InvalidInputError } from "../errors/InvalidInputError.js";
-
+import { AppError } from "../errors/AppError.js";
+/**
+ * Send every error as { code, message, details }.
+ */
 export function handleError(err: unknown, res: Response) {
-  if (err instanceof InvalidInputError) {
-    res.status(400).json({ error: err.message });
+  if (err instanceof AppError) {
+    // Server-side errors: log the details so they show up in the terminal
+    if (err.status >= 500) console.error(err);
+    res.status(err.status).json({
+      code: err.code,
+      message: err.message,
+      details: err.details,
+    });
     return;
   }
 
-  // Server-side errors: log the details so they show up in the terminal
+  // Anything else is an unexpected server error
   console.error(err);
 
-  if (err instanceof Error) {
-    res.status(500).json({ error: err.message });
-  } else {
-    res.status(500).json({ error: "Unknown error" });
-  }
+  res.status(500).json({
+    code: "server_error",
+    message: err instanceof Error ? err.message : "Unknown error",
+    details: null,
+  });
 }
