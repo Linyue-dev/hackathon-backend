@@ -7,28 +7,30 @@ const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/teams", createTeam);
-router.get("/teams", getTeams);
+router.post("/events/:id/teams", createTeam);
+router.get("/events/:id/teams", getTeams);
 router.get("/teams/:id", getTeamById);
 router.patch("/teams/:id", updateTeam);
 router.delete("/teams/:id", deleteTeam);
 
 // ============ Handlers ============
 
-async function createTeam(req: Request, res: Response) {
+async function createTeam(req: Request<IdParams>, res: Response) {
   try {
-    const team = await teamModel.addTeam(req.body);
+    // The event id comes from the path, not from the body
+    const team = await teamModel.addTeam({
+      ...req.body,
+      eventId: req.params.id,
+    });
     res.status(201).json(team);
   } catch (err) {
     handleError(err, res);
   }
 }
 
-async function getTeams(req: Request, res: Response) {
+async function getTeams(req: Request<IdParams>, res: Response) {
   try {
-    const eventId =
-      typeof req.query.eventId === "string" ? req.query.eventId : undefined;
-    const teams = await teamModel.getAllTeams(eventId);
+    const teams = await teamModel.getAllTeams(req.params.id);
     res.json(teams);
   } catch (err) {
     handleError(err, res);

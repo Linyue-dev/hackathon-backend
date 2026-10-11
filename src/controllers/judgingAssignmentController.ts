@@ -7,19 +7,20 @@ const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/assignments", createJudgingAssignment);
-router.get("/assignments", getJudgingAssignments);
+router.post("/events/:id/assignments", createJudgingAssignment);
+router.get("/events/:id/assignments", getJudgingAssignments);
 router.get("/assignments/:id", getJudgingAssignmentById);
 router.patch("/assignments/:id", updateJudgingAssignment);
 router.delete("/assignments/:id", deleteJudgingAssignment);
 
 // ============ Handlers ============
 
-async function createJudgingAssignment(req: Request, res: Response) {
+async function createJudgingAssignment(req: Request<IdParams>, res: Response) {
   try {
-    const { eventId, judgeId, teamId, slotAt } = req.body;
+    // The event id comes from the path, not from the body
+    const { judgeId, teamId, slotAt } = req.body;
     const assignment = await judgingAssignmentModel.addJudgingAssignment({
-      eventId,
+      eventId: req.params.id,
       judgeId,
       teamId,
       slotAt,
@@ -30,11 +31,11 @@ async function createJudgingAssignment(req: Request, res: Response) {
   }
 }
 
-async function getJudgingAssignments(req: Request, res: Response) {
+async function getJudgingAssignments(req: Request<IdParams>, res: Response) {
   try {
-    const { eventId, judgeId, teamId } = req.query;
+    const { judgeId, teamId } = req.query;
     const assignments = await judgingAssignmentModel.getAllJudgingAssignments({
-      eventId: typeof eventId === "string" ? eventId : undefined,
+      eventId: req.params.id,
       judgeId: typeof judgeId === "string" ? judgeId : undefined,
       teamId: typeof teamId === "string" ? teamId : undefined,
     });
