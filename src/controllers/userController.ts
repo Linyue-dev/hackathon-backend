@@ -4,17 +4,17 @@ import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
 
 const router = express.Router();
-export const routeRoot = "/api/users";
+export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/", createUser);
-router.get("/", getUsers);
-router.get("/:id", getUserById);
-router.patch("/:id", updateUser);
-router.post("/:id/approve", approveUser);
-router.post("/:id/decline", declineUser);
-router.patch("/:id/role", changeUserRole);
-router.delete("/:id", deleteUser);
+router.post("/users", createUser);
+router.get("/users", getUsers);
+router.get("/users/:id", getUserById);
+router.patch("/users/:id", updateUser);
+router.post("/users/:id/approve", approveUser);
+router.post("/users/:id/decline", declineUser);
+router.patch("/users/:id/role", changeUserRole);
+router.delete("/users/:id", deleteUser);
 
 // ============ Handlers ============
 

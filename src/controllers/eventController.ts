@@ -4,15 +4,14 @@ import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
 
 const router = express.Router();
-export const routeRoot = "/api/events";
+export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/", createEvent);
-router.get("/", getEvents);
-router.get("/:id", getEventById);
-router.put("/:id", updateEvent);
-router.delete("/:id", deleteEvent);
-
+router.post("/events", createEvent);
+router.get("/events", getEvents);
+router.get("/events/:id", getEventById);
+router.patch("/events/:id", updateEvent);
+router.delete("/events/:id", deleteEvent);
 // ============ Handlers ============
 
 async function createEvent(req: Request, res: Response) {
