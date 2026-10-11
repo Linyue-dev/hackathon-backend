@@ -65,6 +65,11 @@ export interface NewTeamInput {
   devpostId?: string;
 }
 
+export interface TeamFilter {
+  status?: string;
+  search?: string;
+}
+
 const TEAM_STATUSES = ["active", "disqualified", "withdrawn"] as const;
 const TEAM_SOURCES = ["manual", "devpost"] as const;
 // source, devpostId and importedAt are set when the team is created or
@@ -227,11 +232,6 @@ export async function getTeamById(id: string): Promise<WithId<Team>> {
         `Database Error: issue when trying to retrieve team with id ${id}`,
       );
   }
-}
-
-export interface TeamFilter {
-  status?: string;
-  search?: string;
 }
 
 /**

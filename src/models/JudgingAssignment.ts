@@ -5,6 +5,7 @@ import {
   Collection,
   ObjectId,
   WithId,
+  Filter,
 } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
@@ -16,6 +17,7 @@ import {
 import * as eventModel from "./Event.js";
 import * as judgeModel from "./Judge.js";
 import * as teamModel from "./Team.js";
+import { DEFAULT_LIMIT, Pagination } from "../utils/pagination.js";
 
 let client: MongoClient;
 export let judgingAssignmentsCollection: Collection<JudgingAssignment>;
@@ -44,6 +46,7 @@ export interface JudgingAssignmentFilter {
   eventId?: string;
   judgeId?: string;
   teamId?: string;
+  status?: string;
 }
 
 const ASSIGNMENT_STATUSES = ["pending", "in-progress", "completed"] as const;
@@ -197,30 +200,47 @@ export async function getJudgingAssignmentById(
 }
 
 /**
- * Get assignments, optionally filtered by event, judge and/or team.
+ * Get assignments, optionally filtered by event, judge, team and/or status,
+ * one page at a time.
  * "My teams" for a judge = filter by judgeId (and eventId).
+ * @returns the assignments of the requested page and the total number of matches.
  */
 export async function getAllJudgingAssignments(
   filter: JudgingAssignmentFilter = {},
-): Promise<WithId<JudgingAssignment>[]> {
+  pagination: Pagination = { page: 1, limit: DEFAULT_LIMIT, skip: 0 },
+): Promise<{ assignments: WithId<JudgingAssignment>[]; total: number }> {
   if (!judgingAssignmentsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
-  const query: JudgingAssignmentFilter = {};
-  if (filter.eventId) query.eventId = filter.eventId;
-  if (filter.judgeId) query.judgeId = filter.judgeId;
-  if (filter.teamId) query.teamId = filter.teamId;
+  const { eventId, judgeId, teamId, status } = filter;
+  if (status !== undefined && !isValidStatus(status))
+    throw new InvalidInputError(
+      `Invalid input: status '${status}' is not valid`,
+    );
+
+  const query: Filter<JudgingAssignment> = {};
+  if (eventId) query.eventId = eventId;
+  if (judgeId) query.judgeId = judgeId;
+  if (teamId) query.teamId = teamId;
+  if (status) query.status = status;
 
   try {
-    const cursor = judgingAssignmentsCollection.find(query);
-    return await cursor.toArray();
+    const [assignments, total] = await Promise.all([
+      judgingAssignmentsCollection
+        .find(query)
+        .sort({ createdAt: -1, _id: 1 }) // stable order for paging
+        .skip(pagination.skip)
+        .limit(pagination.limit)
+        .toArray(),
+      judgingAssignmentsCollection.countDocuments(query),
+    ]);
+    return { assignments, total };
   } catch (err) {
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve judging assignments",
     );
   }
 }
-
 //#endregion
 
 //#region Update functions

@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
 import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
+import { parsePagination } from "../utils/pagination.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -33,12 +34,18 @@ async function createJudgingAssignment(req: Request<IdParams>, res: Response) {
 
 async function getJudgingAssignments(req: Request<IdParams>, res: Response) {
   try {
-    const { judgeId, teamId } = req.query;
-    const assignments = await judgingAssignmentModel.getAllJudgingAssignments({
-      eventId: req.params.id,
-      judgeId: typeof judgeId === "string" ? judgeId : undefined,
-      teamId: typeof teamId === "string" ? teamId : undefined,
-    });
+    const { judgeId, teamId, status, page, limit } = req.query;
+    const { assignments, total } =
+      await judgingAssignmentModel.getAllJudgingAssignments(
+        {
+          eventId: req.params.id,
+          judgeId: typeof judgeId === "string" ? judgeId : undefined,
+          teamId: typeof teamId === "string" ? teamId : undefined,
+          status: typeof status === "string" ? status : undefined,
+        },
+        parsePagination(page, limit),
+      );
+    res.set("X-Total-Count", String(total));
     res.json(assignments);
   } catch (err) {
     handleError(err, res);
