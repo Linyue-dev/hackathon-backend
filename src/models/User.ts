@@ -5,6 +5,7 @@ import {
   Collection,
   ObjectId,
   WithId,
+  Filter,
 } from "mongodb";
 import bcrypt from "bcrypt";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
@@ -15,7 +16,9 @@ import {
   pickFields,
   getPasswordError,
   assertOnlyAllowedFields,
+  escapeRegex,
 } from "../utils/validateUtils.js";
+import { Pagination } from "../utils/pagination.js";
 
 let client: MongoClient;
 export let usersCollection: Collection<User>;
@@ -167,25 +170,46 @@ export async function getUserById(id: string): Promise<PublicUser> {
   return toPublicUser(await findUserById(id));
 }
 
+export interface UserFilter {
+  status?: string;
+  search?: string;
+}
+
 /**
- * Get users, optionally only those with one status (e.g. "pending" approvals).
+ * Get users, with optional status filter (e.g. "pending" approvals),
+ * search (name or email) and paging.
  */
 export async function getAllUsers(
-  filter: { status?: string } = {},
-): Promise<PublicUser[]> {
+  filter: UserFilter,
+  pagination: Pagination,
+): Promise<{ users: PublicUser[]; total: number }> {
   if (!usersCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
-  if (filter.status !== undefined && !isValidStatus(filter.status))
+  const { status, search } = filter;
+  if (status !== undefined && !isValidStatus(status))
     throw new InvalidInputError(
-      `Invalid input: status '${filter.status}' is not valid`,
+      `Invalid input: status '${status}' is not valid`,
     );
 
+  const query: Filter<User> = {};
+  if (status) query.status = status;
+  if (search) {
+    const regex = { $regex: escapeRegex(search), $options: "i" };
+    query.$or = [{ firstName: regex }, { lastName: regex }, { email: regex }];
+  }
+
   try {
-    const users = await usersCollection
-      .find(filter.status ? { status: filter.status } : {})
-      .toArray();
-    return users.map(toPublicUser);
+    const [users, total] = await Promise.all([
+      usersCollection
+        .find(query)
+        .sort({ createdAt: -1, _id: 1 })
+        .skip(pagination.skip)
+        .limit(pagination.limit)
+        .toArray(),
+      usersCollection.countDocuments(query),
+    ]);
+    return { users: users.map(toPublicUser), total };
   } catch (err) {
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve users",

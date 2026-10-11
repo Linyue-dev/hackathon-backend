@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import * as judgeModel from "../models/Judge.js";
 import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
+import { parsePagination } from "../utils/pagination.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -47,7 +48,12 @@ async function createJudge(req: Request, res: Response) {
 
 async function getJudges(req: Request, res: Response) {
   try {
-    const judges = await judgeModel.getAllJudges();
+    const { search, page, limit } = req.query;
+    const { judges, total } = await judgeModel.getAllJudges(
+      typeof search === "string" ? search : undefined,
+      parsePagination(page, limit),
+    );
+    res.set("X-Total-Count", String(total));
     res.json(judges);
   } catch (err) {
     handleError(err, res);

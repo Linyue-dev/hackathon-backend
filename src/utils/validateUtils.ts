@@ -76,3 +76,8 @@ export function assertOnlyAllowedFields(
       `These fields cannot be updated: ${rejected.join(", ")}`,
     );
 }
+
+// Escape special characters so user text is searched as plain text, not as a regex.
+export function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

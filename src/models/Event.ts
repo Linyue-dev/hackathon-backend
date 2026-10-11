@@ -11,6 +11,7 @@ import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
 import {
   assertOnlyAllowedFields,
+  escapeRegex,
   pickFields,
   toDate,
 } from "../utils/validateUtils.js";
@@ -565,7 +566,7 @@ function buildEventQuery(filter: EventFilter): Filter<Event> {
 
   if (search) {
     // Escape special characters so the search text is matched literally
-    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escaped = escapeRegex(search);
     query.name = { $regex: escaped, $options: "i" };
   }
 

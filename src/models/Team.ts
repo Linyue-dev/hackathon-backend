@@ -5,16 +5,19 @@ import {
   Collection,
   ObjectId,
   WithId,
+  Filter,
 } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
 import {
   assertOnlyAllowedFields,
+  escapeRegex,
   isValidEmail,
   normalizeEmail,
   pickFields,
 } from "../utils/validateUtils.js";
 import * as eventModel from "./Event.js";
+import { Pagination } from "../utils/pagination.js";
 
 let client: MongoClient;
 export let teamsCollection: Collection<Team>;
@@ -226,16 +229,44 @@ export async function getTeamById(id: string): Promise<WithId<Team>> {
   }
 }
 
+export interface TeamFilter {
+  status?: string;
+  search?: string;
+}
+
 /**
- * Get all teams, optionally only those of one event.
+ * Get the teams of one event, with optional status filter, name search and paging.
+ * Returns the page of teams and the total number of matches.
  */
-export async function getAllTeams(eventId?: string): Promise<WithId<Team>[]> {
+export async function getAllTeams(
+  eventId: string,
+  filter: TeamFilter,
+  pagination: Pagination,
+): Promise<{ teams: WithId<Team>[]; total: number }> {
   if (!teamsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
+  const { status, search } = filter;
+  if (status !== undefined && !isValidStatus(status))
+    throw new InvalidInputError(
+      `Invalid input: status '${status}' is not valid`,
+    );
+
+  const query: Filter<Team> = { eventId };
+  if (status) query.status = status;
+  if (search) query.name = { $regex: escapeRegex(search), $options: "i" };
+
   try {
-    const cursor = teamsCollection.find(eventId ? { eventId } : {});
-    return await cursor.toArray();
+    const [teams, total] = await Promise.all([
+      teamsCollection
+        .find(query)
+        .sort({ createdAt: -1, _id: 1 }) // stable order for paging
+        .skip(pagination.skip)
+        .limit(pagination.limit)
+        .toArray(),
+      teamsCollection.countDocuments(query),
+    ]);
+    return { teams, total };
   } catch (err) {
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve teams",

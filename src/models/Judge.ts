@@ -5,15 +5,18 @@ import {
   Collection,
   ObjectId,
   WithId,
+  Filter,
 } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
 import {
   assertOnlyAllowedFields,
+  escapeRegex,
   isValidEmail,
   normalizeEmail,
   pickFields,
 } from "../utils/validateUtils.js";
+import { Pagination } from "../utils/pagination.js";
 
 let client: MongoClient;
 export let judgesCollection: Collection<Judge>;
@@ -197,13 +200,38 @@ export async function getJudgeById(id: string): Promise<WithId<Judge>> {
   }
 }
 
-export async function getAllJudges(): Promise<WithId<Judge>[]> {
+/**
+ * Get judges, with optional search (name, email or affiliation) and paging.
+ */
+export async function getAllJudges(
+  search: string | undefined,
+  pagination: Pagination,
+): Promise<{ judges: WithId<Judge>[]; total: number }> {
   if (!judgesCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
+  const query: Filter<Judge> = {};
+  if (search) {
+    const regex = { $regex: escapeRegex(search), $options: "i" };
+    query.$or = [
+      { firstName: regex },
+      { lastName: regex },
+      { email: regex },
+      { affiliation: regex },
+    ];
+  }
+
   try {
-    const cursor = judgesCollection.find({});
-    return await cursor.toArray();
+    const [judges, total] = await Promise.all([
+      judgesCollection
+        .find(query)
+        .sort({ createdAt: -1, _id: 1 })
+        .skip(pagination.skip)
+        .limit(pagination.limit)
+        .toArray(),
+      judgesCollection.countDocuments(query),
+    ]);
+    return { judges, total };
   } catch (err) {
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve all judges",

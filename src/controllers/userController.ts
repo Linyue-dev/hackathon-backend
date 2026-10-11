@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import * as userModel from "../models/User.js";
 import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
+import { parsePagination } from "../utils/pagination.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -37,10 +38,15 @@ async function createUser(req: Request, res: Response) {
 
 async function getUsers(req: Request, res: Response) {
   try {
-    const { status } = req.query;
-    const users = await userModel.getAllUsers({
-      status: typeof status === "string" ? status : undefined,
-    });
+    const { status, search, page, limit } = req.query;
+    const { users, total } = await userModel.getAllUsers(
+      {
+        status: typeof status === "string" ? status : undefined,
+        search: typeof search === "string" ? search : undefined,
+      },
+      parsePagination(page, limit),
+    );
+    res.set("X-Total-Count", String(total));
     res.json(users);
   } catch (err) {
     handleError(err, res);

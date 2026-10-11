@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import * as teamModel from "../models/Team.js";
 import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
+import { parsePagination } from "../utils/pagination.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -30,7 +31,17 @@ async function createTeam(req: Request<IdParams>, res: Response) {
 
 async function getTeams(req: Request<IdParams>, res: Response) {
   try {
-    const teams = await teamModel.getAllTeams(req.params.id);
+    const { status, search, page, limit } = req.query;
+    const { teams, total } = await teamModel.getAllTeams(
+      req.params.id,
+      {
+        status: typeof status === "string" ? status : undefined,
+        search: typeof search === "string" ? search : undefined,
+      },
+      parsePagination(page, limit),
+    );
+    // Total number of matches goes in a header; the body stays a plain array
+    res.set("X-Total-Count", String(total));
     res.json(teams);
   } catch (err) {
     handleError(err, res);
