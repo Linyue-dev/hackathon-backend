@@ -49,6 +49,11 @@ export interface NewUserInput {
   phone?: string;
 }
 
+export interface UserFilter {
+  status?: string;
+  search?: string;
+}
+
 const USER_STATUSES = ["pending", "active", "declined"] as const;
 const ASSIGNABLE_ROLES = ["admin", "organizer", "viewer"] as const;
 const SALT_ROUNDS = 10;
@@ -168,11 +173,6 @@ export async function addUser(input: NewUserInput): Promise<PublicUser> {
 
 export async function getUserById(id: string): Promise<PublicUser> {
   return toPublicUser(await findUserById(id));
-}
-
-export interface UserFilter {
-  status?: string;
-  search?: string;
 }
 
 /**
