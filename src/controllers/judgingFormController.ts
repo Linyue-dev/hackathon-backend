@@ -7,65 +7,29 @@ const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/judging-forms", createJudgingForm);
-router.get("/judging-forms", getJudgingForms);
-router.get("/judging-forms/:id", getJudgingFormById);
-router.put("/judging-forms/:id", updateJudgingForm);
-router.delete("/judging-forms/:id", deleteJudgingForm);
+// The id in the path is the award id
+router.get("/awards/:id/form", getForm);
+router.put("/awards/:id/form", replaceForm);
 
 // ============ Handlers ============
 
-async function createJudgingForm(req: Request, res: Response) {
+async function getForm(req: Request<IdParams>, res: Response) {
   try {
-    const { name, criteria, instructions } = req.body;
-    const form = await judgingFormModel.addJudgingForm(
-      name,
+    res.json(await judgingFormModel.getFormByAwardId(req.params.id));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+async function replaceForm(req: Request<IdParams>, res: Response) {
+  try {
+    const { criteria, instructions } = req.body;
+    const form = await judgingFormModel.replaceFormForAward(req.params.id, {
       criteria,
       instructions,
-    );
-    res.status(201).json(form);
-  } catch (err) {
-    handleError(err, res);
-  }
-}
-
-async function getJudgingForms(req: Request, res: Response) {
-  try {
-    const forms = await judgingFormModel.getAllJudgingForms();
-    res.json(forms);
-  } catch (err) {
-    handleError(err, res);
-  }
-}
-
-async function getJudgingFormById(req: Request<IdParams>, res: Response) {
-  try {
-    const form = await judgingFormModel.getJudgingFormById(req.params.id);
+    });
     res.json(form);
   } catch (err) {
     handleError(err, res);
   }
 }
-
-async function updateJudgingForm(req: Request<IdParams>, res: Response) {
-  try {
-    const form = await judgingFormModel.updateJudgingFormById(
-      req.params.id,
-      req.body,
-    );
-    res.json(form);
-  } catch (err) {
-    handleError(err, res);
-  }
-}
-
-async function deleteJudgingForm(req: Request<IdParams>, res: Response) {
-  try {
-    const form = await judgingFormModel.deleteJudgingFormById(req.params.id);
-    res.json({ message: "JudgingForm deleted", form });
-  } catch (err) {
-    handleError(err, res);
-  }
-}
-
 export default router;

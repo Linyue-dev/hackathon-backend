@@ -1,13 +1,7 @@
-import {
-  MongoError,
-  Db,
-  MongoClient,
-  Collection,
-  ObjectId,
-  WithId,
-} from "mongodb";
+import { MongoError, Db, MongoClient, Collection, ObjectId } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
+import * as awardModel from "./Award.js";
 
 let client: MongoClient;
 export let judgingFormsCollection: Collection<JudgingForm>;
@@ -15,18 +9,32 @@ export let judgingFormsCollection: Collection<JudgingForm>;
 const collectionName: string = "judgingForms";
 
 export interface CriteriaItem {
+  id: string;
   category: string;
   question: string;
   weight: number;
+  max: number;
 }
 
+// One form per award. The form is created the first time it is saved.
 export interface JudgingForm {
   _id?: ObjectId;
-  name: string;
-  instructions?: string;
+  awardId: string;
+  instructions: string;
   criteria: CriteriaItem[];
   createdAt: Date;
   updatedAt: Date;
+}
+
+// What GET returns for an award that has no saved form yet
+export type EmptyForm = Pick<
+  JudgingForm,
+  "awardId" | "instructions" | "criteria"
+>;
+
+export interface FormInput {
+  criteria: unknown;
+  instructions?: unknown;
 }
 
 /**
@@ -65,102 +73,27 @@ export async function initialize(
   }
 }
 
-//#region Add functions
-
-export async function addJudgingForm(
-  name: string,
-  criteria: CriteriaItem[],
-  instructions?: string,
-): Promise<JudgingForm> {
-  if (!judgingFormsCollection)
-    throw new DatabaseError("Database Collection object not initialized");
-
-  if (!name)
-    throw new InvalidInputError("Invalid input: judging form name is empty");
-
-  if (!Array.isArray(criteria) || criteria.length === 0)
-    throw new InvalidInputError(
-      "Invalid input: criteria must be a non-empty array",
-    );
-
-  for (const item of criteria) {
-    if (!item.category || !item.question || typeof item.weight !== "number") {
-      throw new InvalidInputError(
-        "Invalid input: each criteria item needs category, question, and weight",
-      );
-    }
-  }
-
-  const now = new Date();
-  const form: JudgingForm = {
-    name,
-    instructions,
-    criteria,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  try {
-    await judgingFormsCollection.insertOne(form);
-    return form;
-  } catch (err: unknown) {
-    if (err instanceof Error) {
-      throw new DatabaseError(
-        "Database error: unable to insert judging form; " + err.message,
-      );
-    } else {
-      throw new Error("Unknown error: " + err);
-    }
-  }
-}
-
-//#endregion
-
 //#region Get functions
 
-export async function getJudgingFormById(
-  id: string,
-): Promise<WithId<JudgingForm>> {
+/**
+ * Get the judging form of an award. If no form was saved yet,
+ * return an empty one (nothing is stored).
+ */
+export async function getFormByAwardId(
+  awardId: string,
+): Promise<JudgingForm | EmptyForm> {
   if (!judgingFormsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
-  if (!id)
-    throw new InvalidInputError("Invalid input: must enter a judging form id");
-
-  let objectId: ObjectId;
-  try {
-    objectId = new ObjectId(id);
-  } catch (err) {
-    throw new InvalidInputError(
-      `Get JudgingForm: the id ${id} is not in the valid format (24 hexadecimal characters)`,
-    );
-  }
+  // Throws InvalidInputError if the award does not exist
+  await awardModel.getAwardById(awardId);
 
   try {
-    const result = await judgingFormsCollection.findOne({ _id: objectId });
-    if (!result) {
-      throw new InvalidInputError("No judging form found with the provided id");
-    }
-    return result;
-  } catch (err) {
-    if (err instanceof InvalidInputError) throw err;
-    else
-      throw new DatabaseError(
-        `Database Error: issue when trying to retrieve judging form with id ${id}`,
-      );
-  }
-}
-
-export async function getAllJudgingForms(): Promise<WithId<JudgingForm>[]> {
-  if (!judgingFormsCollection)
-    throw new DatabaseError("Database Collection object not initialized");
-
-  try {
-    const cursor = judgingFormsCollection.find({});
-    return await cursor.toArray();
+    const form = await judgingFormsCollection.findOne({ awardId });
+    return form ?? { awardId, instructions: "", criteria: [] };
   } catch (err) {
     throw new DatabaseError(
-      "Database Error: issue when trying to retrieve all judging forms",
+      `Database Error: issue when trying to retrieve the form of award ${awardId}`,
     );
   }
 }
@@ -169,95 +102,45 @@ export async function getAllJudgingForms(): Promise<WithId<JudgingForm>[]> {
 
 //#region Update functions
 
-export async function updateJudgingFormById(
-  id: string,
-  updates: Partial<Omit<JudgingForm, "_id" | "createdAt" | "updatedAt">>,
+/**
+ * Replace the criteria list and instructions of an award's form.
+ * The form is created if it does not exist yet.
+ */
+export async function replaceFormForAward(
+  awardId: string,
+  input: FormInput,
 ): Promise<JudgingForm> {
   if (!judgingFormsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
-  if (Object.keys(updates).length === 0)
-    throw new InvalidInputError(
-      "Update judging form error: at least one field must be provided",
-    );
+  const criteria = normalizeCriteria(input.criteria);
 
-  let objectId: ObjectId;
+  const { instructions } = input;
+  if (instructions !== undefined && typeof instructions !== "string")
+    throw new InvalidInputError("Invalid input: instructions must be a string");
+
+  // Throws InvalidInputError if the award does not exist
+  await awardModel.getAwardById(awardId);
+
+  const now = new Date();
   try {
-    objectId = new ObjectId(id);
-  } catch (err) {
-    throw new InvalidInputError(
-      `Update JudgingForm: the id ${id} is not in the valid format (24 hexadecimal characters)`,
+    const saved = await judgingFormsCollection.findOneAndUpdate(
+      { awardId },
+      {
+        $set: { criteria, instructions: instructions ?? "", updatedAt: now },
+        $setOnInsert: { createdAt: now },
+      },
+      { upsert: true, returnDocument: "after" },
     );
-  }
-
-  try {
-    const oldForm = await judgingFormsCollection.findOne<JudgingForm>({
-      _id: objectId,
-    });
-    if (!oldForm)
-      throw new InvalidInputError(
-        `The judging form you are trying to update doesn't exist (id ${id})`,
-      );
-
-    const newForm: JudgingForm = {
-      ...oldForm,
-      ...updates,
-      updatedAt: new Date(),
-    };
-
-    const replaced = await judgingFormsCollection.findOneAndReplace(
-      { _id: objectId },
-      newForm,
-    );
-    if (!replaced) throw new Error();
-    return newForm;
+    if (!saved) throw new DatabaseError("Unable to save the judging form");
+    return saved;
   } catch (err: unknown) {
-    if (err instanceof InvalidInputError) throw err;
+    if (err instanceof DatabaseError) throw err;
     else if (err instanceof Error)
       throw new DatabaseError(
-        `Update JudgingForm Error: failed to update judging form ${id}; ${err.message}`,
+        `Update JudgingForm Error: failed to save the form of award ${awardId}; ${err.message}`,
       );
     else throw new Error("Unknown error " + err);
-  }
-}
-
-//#endregion
-
-//#region Delete functions
-
-export async function deleteJudgingFormById(id: string): Promise<JudgingForm> {
-  if (!judgingFormsCollection)
-    throw new DatabaseError("Database Collection object not initialized");
-
-  let objectId: ObjectId;
-  try {
-    objectId = new ObjectId(id);
-  } catch (err) {
-    throw new InvalidInputError(
-      `Delete JudgingForm: the id ${id} is not in the valid format (24 hexadecimal characters)`,
-    );
-  }
-
-  try {
-    const formToDelete = await judgingFormsCollection.findOne<JudgingForm>({
-      _id: objectId,
-    });
-    if (!formToDelete)
-      throw new InvalidInputError(
-        `The judging form you were trying to delete doesn't exist (id ${id})`,
-      );
-
-    const result = await judgingFormsCollection.deleteOne({ _id: objectId });
-    if (!result.acknowledged)
-      throw new InvalidInputError(`unable to delete judging form ${id}`);
-
-    return formToDelete;
-  } catch (err) {
-    if (err instanceof DatabaseError) throw err;
-    else if (err instanceof InvalidInputError) throw err;
-    else if (err instanceof Error)
-      throw new Error(`Unexpected error: ${err.message}`);
-    else throw new Error(`Unknown error: ${err}`);
   }
 }
 
@@ -281,3 +164,74 @@ export function getCollection(): Collection<JudgingForm> {
   }
   return judgingFormsCollection;
 }
+
+//#region Helpers
+
+/**
+ * Check every criteria item and give each one an id.
+ * An id sent by the client is kept, so scores that point to it stay valid.
+ */
+function normalizeCriteria(criteria: unknown): CriteriaItem[] {
+  if (!Array.isArray(criteria))
+    throw new InvalidInputError("Invalid input: criteria must be an array");
+
+  const usedIds = new Set<string>();
+
+  return criteria.map((item: unknown, index: number) => {
+    const n = index + 1;
+    if (typeof item !== "object" || item === null || Array.isArray(item))
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} must be an object`,
+      );
+
+    const { id, category, question, weight, max } = item as Record<
+      string,
+      unknown
+    >;
+
+    if (typeof category !== "string" || !category.trim())
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} needs a category`,
+      );
+    if (typeof question !== "string" || !question.trim())
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} needs a question`,
+      );
+    if (!isPositiveNumber(weight))
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} needs a weight greater than 0`,
+      );
+    if (!isPositiveNumber(max))
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} needs a max greater than 0`,
+      );
+
+    let itemId: string;
+    if (id === undefined) itemId = new ObjectId().toHexString();
+    else if (typeof id === "string" && id.trim()) itemId = id.trim();
+    else
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} id must be a non-empty string`,
+      );
+
+    if (usedIds.has(itemId))
+      throw new InvalidInputError(
+        `Invalid input: criteria id '${itemId}' is used more than once`,
+      );
+    usedIds.add(itemId);
+
+    return {
+      id: itemId,
+      category: category.trim(),
+      question: question.trim(),
+      weight,
+      max,
+    };
+  });
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+//#endregion
