@@ -19,7 +19,7 @@ router.delete("/assignments/:id", deleteJudgingAssignment);
 async function createJudgingAssignment(req: Request<IdParams>, res: Response) {
   try {
     // The event id comes from the path, not from the body
-    const { judgeId, teamId, slotAt } = req.body;
+    const { judgeId, teamId, slotAt } = req.body ?? {};
     const assignment = await judgingAssignmentModel.addJudgingAssignment({
       eventId: req.params.id,
       judgeId,
@@ -67,7 +67,7 @@ async function updateJudgingAssignment(req: Request<IdParams>, res: Response) {
   try {
     const assignment = await judgingAssignmentModel.updateJudgingAssignmentById(
       req.params.id,
-      req.body,
+      req.body ?? {},
     );
     res.json(assignment);
   } catch (err) {

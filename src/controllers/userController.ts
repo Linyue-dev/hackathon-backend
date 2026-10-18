@@ -22,7 +22,7 @@ router.delete("/users/:id", deleteUser);
 async function createUser(req: Request, res: Response) {
   try {
     // Only these fields are read. A "role" in the body is ignored.
-    const { firstName, lastName, email, password, phone } = req.body;
+    const { firstName, lastName, email, password, phone } = req.body ?? {};
     const user = await userModel.addUser({
       firstName,
       lastName,
@@ -63,7 +63,7 @@ async function getUserById(req: Request<IdParams>, res: Response) {
 
 async function updateUser(req: Request<IdParams>, res: Response) {
   try {
-    res.json(await userModel.updateUserById(req.params.id, req.body));
+    res.json(await userModel.updateUserById(req.params.id, req.body ?? {}));
   } catch (err) {
     handleError(err, res);
   }

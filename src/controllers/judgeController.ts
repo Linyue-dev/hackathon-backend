@@ -28,7 +28,7 @@ async function createJudge(req: Request, res: Response) {
       yearsParticipated,
       phone,
       notes,
-    } = req.body;
+    } = req.body ?? {};
     const judge = await judgeModel.addJudge({
       firstName,
       lastName,
@@ -71,7 +71,10 @@ async function getJudgeById(req: Request<IdParams>, res: Response) {
 
 async function updateJudge(req: Request<IdParams>, res: Response) {
   try {
-    const judge = await judgeModel.updateJudgeById(req.params.id, req.body);
+    const judge = await judgeModel.updateJudgeById(
+      req.params.id,
+      req.body ?? {},
+    );
     res.json(judge);
   } catch (err) {
     handleError(err, res);

@@ -59,7 +59,7 @@ async function getTeamById(req: Request<IdParams>, res: Response) {
 
 async function updateTeam(req: Request<IdParams>, res: Response) {
   try {
-    const team = await teamModel.updateTeamById(req.params.id, req.body);
+    const team = await teamModel.updateTeamById(req.params.id, req.body ?? {});
     res.json(team);
   } catch (err) {
     handleError(err, res);

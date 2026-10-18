@@ -22,7 +22,7 @@ async function getForm(req: Request<IdParams>, res: Response) {
 }
 async function replaceForm(req: Request<IdParams>, res: Response) {
   try {
-    const { criteria, instructions } = req.body;
+    const { criteria, instructions } = req.body ?? {};
     const form = await judgingFormModel.replaceFormForAward(req.params.id, {
       criteria,
       instructions,

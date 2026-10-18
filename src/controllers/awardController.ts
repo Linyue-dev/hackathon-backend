@@ -26,7 +26,7 @@ async function createAward(req: Request<IdParams>, res: Response) {
       sponsoredBy,
       eligibilityCriteria,
       requiresVerification,
-    } = req.body;
+    } = req.body ?? {};
     const award = await awardModel.addAward({
       eventId: req.params.id,
       name,
@@ -67,7 +67,10 @@ async function getAwardById(req: Request<IdParams>, res: Response) {
 
 async function updateAward(req: Request<IdParams>, res: Response) {
   try {
-    const award = await awardModel.updateAwardById(req.params.id, req.body);
+    const award = await awardModel.updateAwardById(
+      req.params.id,
+      req.body ?? {},
+    );
     res.json(award);
   } catch (err) {
     handleError(err, res);

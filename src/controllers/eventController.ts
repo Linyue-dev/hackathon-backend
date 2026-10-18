@@ -32,7 +32,7 @@ async function createEvent(req: Request, res: Response) {
       location,
       startDatetime,
       endDatetime,
-    } = req.body;
+    } = req.body ?? {};
     const event = await eventModel.addEvent({
       name,
       status,
@@ -81,7 +81,10 @@ async function getEventById(req: Request<IdParams>, res: Response) {
 
 async function updateEvent(req: Request<IdParams>, res: Response) {
   try {
-    const event = await eventModel.updateEventById(req.params.id, req.body);
+    const event = await eventModel.updateEventById(
+      req.params.id,
+      req.body ?? {},
+    );
     res.json(event);
   } catch (err) {
     handleError(err, res);

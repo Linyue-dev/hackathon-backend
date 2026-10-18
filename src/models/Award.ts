@@ -115,16 +115,20 @@ export async function addAward(input: NewAwardInput): Promise<Award> {
   } = input;
 
   if (!eventId) throw new InvalidInputError("Invalid input: eventId is empty");
+
   if (typeof name !== "string" || !name.trim())
     throw new InvalidInputError("Invalid input: award name is empty");
+
   if (!isValidJudgedBy(judgedBy))
     throw new InvalidInputError(
       `Invalid input: judgedBy must be one of ${JUDGED_BY.join(", ")}`,
     );
+
   if (!isValidType(type))
     throw new InvalidInputError(
       `Invalid input: type must be one of ${AWARD_TYPES.join(", ")}`,
     );
+
   validateOptionalText(sponsoredBy, "sponsoredBy");
   validateOptionalText(eligibilityCriteria, "eligibilityCriteria");
   validateRequiresVerification(requiresVerification);
@@ -139,8 +143,8 @@ export async function addAward(input: NewAwardInput): Promise<Award> {
     name: name.trim(),
     type,
     judgedBy,
-    sponsoredBy,
-    eligibilityCriteria,
+    ...(sponsoredBy !== undefined && { sponsoredBy }),
+    ...(eligibilityCriteria !== undefined && { eligibilityCriteria }),
     requiresVerification,
     createdAt: now,
     updatedAt: now,
@@ -380,6 +384,10 @@ function isValidJudgedBy(value: unknown): value is Award["judgedBy"] {
   return JUDGED_BY.some((j) => j === value);
 }
 
+function isValidType(value: unknown): value is Award["type"] {
+  return AWARD_TYPES.some((t) => t === value);
+}
+
 function validateOptionalText(value: unknown, fieldName: string): void {
   if (value !== undefined && typeof value !== "string")
     throw new InvalidInputError(`Invalid input: ${fieldName} must be a string`);
@@ -411,7 +419,5 @@ async function assertNameFree(
       `An award named '${name}' already exists in this event`,
     );
 }
-function isValidType(value: unknown): value is Award["type"] {
-  return AWARD_TYPES.some((t) => t === value);
-}
+
 //#endregion
