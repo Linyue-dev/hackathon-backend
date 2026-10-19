@@ -3,6 +3,7 @@ import * as awardModel from "../models/Award.js";
 import { handleError } from "../utils/errorHandler.js";
 import { parsePagination } from "../utils/pagination.js";
 import type { IdParams } from "../utils/types.js";
+import * as judgingFormModel from "../models/JudgingForm.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -26,7 +27,14 @@ async function createAward(req: Request<IdParams>, res: Response) {
       sponsoredBy,
       eligibilityCriteria,
       requiresVerification,
+      judgingCriteria,
     } = req.body ?? {};
+
+    // Optional: if judgingCriteria is sent, the award's judging form is created too.
+    // Check the criteria first, so a bad list does not leave an award without its form.
+    if (judgingCriteria !== undefined)
+      judgingFormModel.normalizeCriteria(judgingCriteria);
+
     const award = await awardModel.addAward({
       eventId: req.params.id,
       name,
@@ -36,7 +44,17 @@ async function createAward(req: Request<IdParams>, res: Response) {
       eligibilityCriteria,
       requiresVerification,
     });
-    res.status(201).json(award);
+
+    if (judgingCriteria === undefined) {
+      res.status(201).json(award);
+      return;
+    }
+    
+    const form = await judgingFormModel.replaceFormForAward(String(award._id), {
+      criteria: judgingCriteria,
+    });
+
+    res.status(201).json({ ...award, form });
   } catch (err) {
     handleError(err, res);
   }

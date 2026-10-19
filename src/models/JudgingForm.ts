@@ -171,7 +171,7 @@ export function getCollection(): Collection<JudgingForm> {
  * Check every criteria item and give each one an id.
  * An id sent by the client is kept, so scores that point to it stay valid.
  */
-function normalizeCriteria(criteria: unknown): CriteriaItem[] {
+export function normalizeCriteria(criteria: unknown): CriteriaItem[] {
   if (!Array.isArray(criteria))
     throw new InvalidInputError("Invalid input: criteria must be an array");
 
