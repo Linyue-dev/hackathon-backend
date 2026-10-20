@@ -1,7 +1,6 @@
 import dotenv from "dotenv";
 import app from "./app.js";
 import * as eventModel from "./models/Event.js";
-import * as judgingFormModel from "./models/JudgingForm.js";
 import * as judgeModel from "./models/Judge.js";
 import * as teamModel from "./models/Team.js";
 import * as judgingAssignmentModel from "./models/JudgingAssignment.js";
@@ -23,7 +22,6 @@ async function startServer() {
     }
 
     await eventModel.initialize(MONGO_URI, DB_NAME, false);
-    await judgingFormModel.initialize(MONGO_URI, DB_NAME, false);
     await judgeModel.initialize(MONGO_URI, DB_NAME, false);
     await teamModel.initialize(MONGO_URI, DB_NAME, false);
     await judgingAssignmentModel.initialize(MONGO_URI, DB_NAME, false);

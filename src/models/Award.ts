@@ -32,6 +32,8 @@ export interface Award {
   sponsoredBy?: string;
   eligibilityCriteria?: string;
   requiresVerification: boolean;
+  instructions: string;
+  criteria: CriteriaItem[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -44,6 +46,7 @@ export interface NewAwardInput {
   sponsoredBy?: string;
   eligibilityCriteria?: string;
   requiresVerification?: boolean;
+  judgingCriteria?: unknown;
 }
 
 const JUDGED_BY = ["organizer", "sponsor", "judge"] as const;
@@ -58,6 +61,21 @@ const UPDATABLE_FIELDS = [
   "eligibilityCriteria",
   "requiresVerification",
 ] as const;
+
+export interface CriteriaItem {
+  id: string;
+  category: string;
+  question: string;
+  weight: number;
+  max: number;
+}
+
+// What GET /awards/:id/form returns
+export interface AwardForm {
+  awardId: string;
+  instructions: string;
+  criteria: CriteriaItem[];
+}
 
 /**
  * Connect to the database and prepare the awards collection.
@@ -112,6 +130,7 @@ export async function addAward(input: NewAwardInput): Promise<Award> {
     eligibilityCriteria,
     judgedBy = "judge",
     requiresVerification = false,
+    judgingCriteria,
   } = input;
 
   if (!eventId) throw new InvalidInputError("Invalid input: eventId is empty");
@@ -133,6 +152,10 @@ export async function addAward(input: NewAwardInput): Promise<Award> {
   validateOptionalText(eligibilityCriteria, "eligibilityCriteria");
   validateRequiresVerification(requiresVerification);
 
+  // Check the criteria before anything is saved
+  const criteria =
+    judgingCriteria === undefined ? [] : normalizeCriteria(judgingCriteria);
+
   // Throws InvalidInputError if the event does not exist
   await eventModel.getEventById(eventId);
   await assertNameFree(eventId, name.trim());
@@ -146,6 +169,8 @@ export async function addAward(input: NewAwardInput): Promise<Award> {
     ...(sponsoredBy !== undefined && { sponsoredBy }),
     ...(eligibilityCriteria !== undefined && { eligibilityCriteria }),
     requiresVerification,
+    instructions: "",
+    criteria,
     createdAt: now,
     updatedAt: now,
   };
@@ -230,6 +255,60 @@ export async function getAllAwards(
   } catch (err) {
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve awards",
+    );
+  }
+}
+
+//#endregion
+
+//#region Form functions
+// The judging form is stored inside the award (one form per award).
+
+export async function getFormByAwardId(awardId: string): Promise<AwardForm> {
+  // Throws InvalidInputError if the award does not exist
+  const award = await getAwardById(awardId);
+  return {
+    awardId,
+    instructions: award.instructions ?? "",
+    criteria: award.criteria ?? [],
+  };
+}
+
+/**
+ * Replace the criteria list and instructions of an award's form.
+ */
+export async function replaceFormForAward(
+  awardId: string,
+  input: { criteria: unknown; instructions?: unknown },
+): Promise<AwardForm> {
+  if (!awardsCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  const criteria = normalizeCriteria(input.criteria);
+
+  const { instructions } = input;
+  if (instructions !== undefined && typeof instructions !== "string")
+    throw new InvalidInputError("Invalid input: instructions must be a string");
+
+  // Throws InvalidInputError if the award does not exist
+  const award = await getAwardById(awardId);
+
+  try {
+    await awardsCollection.updateOne(
+      { _id: award._id },
+      {
+        $set: {
+          criteria,
+          instructions: instructions ?? "",
+          updatedAt: new Date(),
+        },
+      },
+    );
+    return { awardId, instructions: instructions ?? "", criteria };
+  } catch (err: unknown) {
+    throw new DatabaseError(
+      `Update Award Error: failed to save the form of award ${awardId}` +
+        (err instanceof Error ? "; " + err.message : ""),
     );
   }
 }
@@ -418,6 +497,73 @@ async function assertNameFree(
     throw new InvalidInputError(
       `An award named '${name}' already exists in this event`,
     );
+}
+
+/**
+ * Check every criteria item and give each one an id.
+ * An id sent by the client is kept, so scores that point to it stay valid.
+ */
+function normalizeCriteria(criteria: unknown): CriteriaItem[] {
+  if (!Array.isArray(criteria))
+    throw new InvalidInputError("Invalid input: criteria must be an array");
+
+  const usedIds = new Set<string>();
+
+  return criteria.map((item: unknown, index: number) => {
+    const n = index + 1;
+    if (typeof item !== "object" || item === null || Array.isArray(item))
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} must be an object`,
+      );
+
+    const { id, category, question, weight, max } = item as Record<
+      string,
+      unknown
+    >;
+
+    if (typeof category !== "string" || !category.trim())
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} needs a category`,
+      );
+    if (typeof question !== "string" || !question.trim())
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} needs a question`,
+      );
+    if (!isPositiveNumber(weight))
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} needs a weight greater than 0`,
+      );
+    if (!isPositiveNumber(max))
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} needs a max greater than 0`,
+      );
+
+    let itemId: string;
+    if (id === undefined) itemId = new ObjectId().toHexString();
+    else if (typeof id === "string" && id.trim()) itemId = id.trim();
+    else
+      throw new InvalidInputError(
+        `Invalid input: criteria item ${n} id must be a non-empty string`,
+      );
+
+    if (usedIds.has(itemId))
+      throw new InvalidInputError(
+        `Invalid input: criteria id '${itemId}' is used more than once`,
+      );
+    usedIds.add(itemId);
+
+    return {
+      id: itemId,
+      category: category.trim(),
+      question: question.trim(),
+      weight,
+      max,
+    };
+  });
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 //#endregion

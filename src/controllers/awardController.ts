@@ -3,7 +3,6 @@ import * as awardModel from "../models/Award.js";
 import { handleError } from "../utils/errorHandler.js";
 import { parsePagination } from "../utils/pagination.js";
 import type { IdParams } from "../utils/types.js";
-import * as judgingFormModel from "../models/JudgingForm.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -14,6 +13,9 @@ router.get("/events/:id/awards", getAwards);
 router.get("/awards/:id", getAwardById);
 router.patch("/awards/:id", updateAward);
 router.delete("/awards/:id", deleteAward);
+
+router.get("/awards/:id/form", getForm);
+router.put("/awards/:id/form", replaceForm);
 
 // ============ Handlers ============
 
@@ -29,12 +31,6 @@ async function createAward(req: Request<IdParams>, res: Response) {
       requiresVerification,
       judgingCriteria,
     } = req.body ?? {};
-
-    // Optional: if judgingCriteria is sent, the award's judging form is created too.
-    // Check the criteria first, so a bad list does not leave an award without its form.
-    if (judgingCriteria !== undefined)
-      judgingFormModel.normalizeCriteria(judgingCriteria);
-
     const award = await awardModel.addAward({
       eventId: req.params.id,
       name,
@@ -43,18 +39,9 @@ async function createAward(req: Request<IdParams>, res: Response) {
       sponsoredBy,
       eligibilityCriteria,
       requiresVerification,
+      judgingCriteria,
     });
-
-    if (judgingCriteria === undefined) {
-      res.status(201).json(award);
-      return;
-    }
-    
-    const form = await judgingFormModel.replaceFormForAward(String(award._id), {
-      criteria: judgingCriteria,
-    });
-
-    res.status(201).json({ ...award, form });
+    res.status(201).json(award);
   } catch (err) {
     handleError(err, res);
   }
@@ -99,6 +86,28 @@ async function deleteAward(req: Request<IdParams>, res: Response) {
   try {
     const award = await awardModel.deleteAwardById(req.params.id);
     res.json({ message: "Award deleted", award });
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+async function getForm(req: Request<IdParams>, res: Response) {
+  try {
+    res.json(await awardModel.getFormByAwardId(req.params.id));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+async function replaceForm(req: Request<IdParams>, res: Response) {
+  try {
+    const { criteria, instructions } = req.body ?? {};
+    res.json(
+      await awardModel.replaceFormForAward(req.params.id, {
+        criteria,
+        instructions,
+      }),
+    );
   } catch (err) {
     handleError(err, res);
   }

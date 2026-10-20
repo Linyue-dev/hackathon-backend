@@ -7,7 +7,6 @@ app.use(express.json());
 
 const controllers: string[] = [
   "eventController.js",
-  "judgingFormController.js",
   "judgeController.js",
   "teamController.js",
   "judgingAssignmentController.js",
