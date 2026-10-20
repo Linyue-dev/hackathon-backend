@@ -12,6 +12,9 @@ import { DatabaseError } from "../errors/DatabaseError.js";
 import type { Pagination } from "../utils/pagination.js";
 import * as eventModel from "./Event.js";
 import * as judgeModel from "./Judge.js";
+import * as teamModel from "./Team.js";
+import * as awardModel from "./Award.js";
+import { assertOnlyAllowedFields, pickFields } from "../utils/validateUtils.js";
 
 let client: MongoClient;
 export let eventJudgesCollection: Collection<EventJudge>;
@@ -106,7 +109,7 @@ export async function addJudgesToEvent(
     throw new InvalidInputError(
       "Invalid input: every judge id must be a string",
     );
-    
+
   if (!isValidType(type))
     throw new InvalidInputError(
       `Invalid input: type must be one of ${JUDGE_TYPES.join(", ")}`,
@@ -214,6 +217,139 @@ export async function getEventJudge(
 
 //#endregion
 
+// eventId and judgeId can never be changed.
+const UPDATABLE_FIELDS = ["type", "awardIds", "notes"] as const;
+
+//#region Update functions
+
+/**
+ * Edit the type, awards or notes of a judge in an event.
+ */
+export async function updateEventJudge(
+  eventId: string,
+  judgeId: string,
+  updates: Partial<Pick<EventJudge, "type" | "awardIds" | "notes">>,
+): Promise<WithId<EventJudge>> {
+  if (!eventJudgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  assertOnlyAllowedFields(updates, UPDATABLE_FIELDS);
+  const cleanUpdates = pickFields(updates, UPDATABLE_FIELDS);
+  if (Object.keys(cleanUpdates).length === 0)
+    throw new InvalidInputError(
+      "Update event judge error: at least one valid field must be provided",
+    );
+
+  if (cleanUpdates.type !== undefined && !isValidType(cleanUpdates.type))
+    throw new InvalidInputError(
+      `Invalid input: type must be one of ${JUDGE_TYPES.join(", ")}`,
+    );
+  if (
+    cleanUpdates.notes !== undefined &&
+    typeof cleanUpdates.notes !== "string"
+  )
+    throw new InvalidInputError("Invalid input: notes must be a string");
+  if (cleanUpdates.awardIds !== undefined) {
+    cleanUpdates.awardIds = await checkAwardIds(eventId, cleanUpdates.awardIds);
+  }
+
+  // Throws InvalidInputError if the judge is not in the event
+  await getEventJudge(eventId, judgeId);
+
+  try {
+    const saved = await eventJudgesCollection.findOneAndUpdate(
+      { eventId, judgeId },
+      { $set: cleanUpdates },
+      { returnDocument: "after" },
+    );
+    if (!saved) throw new Error("Judge not found");
+    return saved;
+  } catch (err: unknown) {
+    throw new DatabaseError(
+      "Update EventJudge Error: failed to update the judge" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+}
+
+/**
+ * Replace the conflict teams of a judge. An empty list clears the conflicts.
+ * The same reason is stored for every team.
+ */
+export async function setConflicts(
+  eventId: string,
+  judgeId: string,
+  teamIds: unknown,
+  reason?: unknown,
+): Promise<WithId<EventJudge>> {
+  if (!eventJudgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  if (!Array.isArray(teamIds) || teamIds.some((id) => typeof id !== "string"))
+    throw new InvalidInputError(
+      "Invalid input: teamIds must be an array of ids",
+    );
+  if (reason !== undefined && typeof reason !== "string")
+    throw new InvalidInputError("Invalid input: reason must be a string");
+
+  // Throws InvalidInputError if the judge is not in the event
+  await getEventJudge(eventId, judgeId);
+
+  const uniqueIds = [...new Set(teamIds as string[])];
+  for (const teamId of uniqueIds) {
+    const team = await teamModel.getTeamById(teamId);
+    if (team.eventId !== eventId)
+      throw new InvalidInputError(
+        `The team ${teamId} does not belong to this event`,
+      );
+  }
+
+  const conflicts: Conflict[] = uniqueIds.map((teamId) =>
+    reason ? { teamId, reason } : { teamId },
+  );
+
+  try {
+    const saved = await eventJudgesCollection.findOneAndUpdate(
+      { eventId, judgeId },
+      { $set: { conflicts } },
+      { returnDocument: "after" },
+    );
+    if (!saved) throw new Error("Judge not found");
+    return saved;
+  } catch (err: unknown) {
+    throw new DatabaseError(
+      "Update EventJudge Error: failed to set the conflicts" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+}
+
+//#endregion
+
+//#region Delete functions
+
+/**
+ * Remove a judge from an event.
+ */
+export async function removeJudgeFromEvent(
+  eventId: string,
+  judgeId: string,
+): Promise<void> {
+  if (!eventJudgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  try {
+    const result = await eventJudgesCollection.deleteOne({ eventId, judgeId });
+    if (result.deletedCount === 0)
+      throw new InvalidInputError("This judge is not in the event");
+  } catch (err) {
+    if (err instanceof InvalidInputError) throw err;
+    throw new DatabaseError("Database Error: unable to remove the judge");
+  }
+}
+
+//#endregion
+
 export async function close() {
   try {
     await client.close();
@@ -239,4 +375,26 @@ function isValidType(value: unknown): value is EventJudge["type"] {
   return JUDGE_TYPES.some((t) => t === value);
 }
 
+/**
+ * Every award id must exist and belong to this event. Duplicates are removed.
+ */
+async function checkAwardIds(
+  eventId: string,
+  awardIds: unknown,
+): Promise<string[]> {
+  if (!Array.isArray(awardIds) || awardIds.some((id) => typeof id !== "string"))
+    throw new InvalidInputError(
+      "Invalid input: awardIds must be an array of ids",
+    );
+
+  const uniqueIds = [...new Set(awardIds as string[])];
+  for (const awardId of uniqueIds) {
+    const award = await awardModel.getAwardById(awardId);
+    if (award.eventId !== eventId)
+      throw new InvalidInputError(
+        `The award ${awardId} does not belong to this event`,
+      );
+  }
+  return uniqueIds;
+}
 //#endregion

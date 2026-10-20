@@ -359,6 +359,17 @@ export async function deleteJudgingAssignmentById(
   }
 }
 
+/**
+ * Delete all assignments of a judge in an event. Returns how many were deleted.
+ */
+export async function releaseJudgeAssignments(
+  eventId: string,
+  judgeId: string,
+): Promise<number> {
+  const result = await getCollection().deleteMany({ eventId, judgeId });
+  return result.deletedCount;
+}
+
 //#endregion
 
 export async function close() {
