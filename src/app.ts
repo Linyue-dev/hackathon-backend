@@ -13,6 +13,7 @@ const controllers: string[] = [
   "judgingAssignmentController.js",
   "userController.js",
   "awardController.js",
+  "eventJudgeController",
 ];
 
 async function registerControllers() {
