@@ -405,4 +405,14 @@ function assertIdString(value: unknown, fieldName: string): void {
     );
 }
 
+/**
+ * Find the assignment of one judge to one team, or null if there is none.
+ */
+export async function findAssignment(
+  eventId: string,
+  judgeId: string,
+  teamId: string,
+): Promise<WithId<JudgingAssignment> | null> {
+  return getCollection().findOne({ eventId, judgeId, teamId });
+}
 //#endregion
