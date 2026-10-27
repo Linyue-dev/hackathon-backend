@@ -6,6 +6,8 @@ const router = express.Router();
 export const routeRoot = "/api/v1";
 
 type ScoreParams = { teamId: string; judgeId: string };
+type ByJudgeParams = { eventId: string; judgeId: string };
+type TeamParams = { teamId: string };
 
 // ============ Routes ============
 router.put("/scores/:teamId/:judgeId", saveDraftScores);
@@ -13,6 +15,9 @@ router.get("/scores/:teamId/raw/:judgeId", getRawScores);
 router.post("/scores/:teamId/submit/:judgeId", submitScores);
 router.patch("/scores/:teamId/:judgeId", updateScores);
 router.post("/scores/:teamId/final/:judgeId", finalSubmitScores);
+router.get("/scores/:eventId/byJudge/:judgeId", getScoresByJudge);
+router.get("/scores/:teamId/all", getScoresByTeam);
+router.get("/scores/:teamId/history/:judgeId", getScoreHistory);
 
 // ============ Handlers ============
 /**
@@ -95,6 +100,51 @@ async function finalSubmitScores(req: Request<ScoreParams>, res: Response) {
   try {
     const { teamId, judgeId } = req.params;
     res.json(await scoreModel.finalSubmitScores(teamId, judgeId, req.body));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * GET /scores/:eventId/byJudge/:judgeId
+ * "My scores" of one judge in one event: one item per assigned team with
+ * { teamId, teamName, tableNumber, status, slotAt, interimSubmittedAt,
+ * finalSubmittedAt, awards: [{ awardId, criteriaScores, comments, version, updatedAt }] }.
+ * Teams without scores have an empty awards list.
+ */
+async function getScoresByJudge(req: Request<ByJudgeParams>, res: Response) {
+  try {
+    const { eventId, judgeId } = req.params;
+    res.json(await scoreModel.getScoresByJudge(eventId, judgeId));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * GET /scores/:teamId/all
+ * The scores of one team from every judge who scored it: one item per judge with
+ * { judgeId, judgeName, interimSubmittedAt, finalSubmittedAt, awards: [...] }.
+ * interimSubmittedAt is empty while the judge is still saving drafts.
+ */
+async function getScoresByTeam(req: Request<TeamParams>, res: Response) {
+  try {
+    res.json(await scoreModel.getScoresByTeam(req.params.teamId));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * GET /scores/:teamId/history/:judgeId
+ * Audit info: every version of the judge's scores for the team, per award:
+ * { awardId, versions: [{ version, criteriaScores, comments, savedAt }] }.
+ * Old versions come first; the last one is the current version.
+ */
+async function getScoreHistory(req: Request<ScoreParams>, res: Response) {
+  try {
+    const { teamId, judgeId } = req.params;
+    res.json(await scoreModel.getScoreHistory(teamId, judgeId));
   } catch (err) {
     handleError(err, res);
   }

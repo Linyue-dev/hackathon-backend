@@ -33,6 +33,7 @@ export interface Score {
   criteriaScores: CriterionScore[];
   comments: CriterionComment[];
   version: number;
+  history: ScoreVersion[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,6 +47,34 @@ export interface ScoreView {
   updatedAt: Date;
 }
 
+// One team in a judge's "my scores" list
+export interface TeamScores {
+  teamId: string;
+  teamName: string;
+  tableNumber?: number;
+  status: string;
+  slotAt?: Date;
+  interimSubmittedAt?: Date;
+  finalSubmittedAt?: Date;
+  awards: ScoreView[];
+}
+
+// One judge in the list of all scores of a team
+export interface JudgeScores {
+  judgeId: string;
+  judgeName: string;
+  interimSubmittedAt?: Date;
+  finalSubmittedAt?: Date;
+  awards: ScoreView[];
+}
+
+// Every version of one award's score: old versions first, the current one last
+export interface AwardHistory {
+  awardId: string;
+  versions: ScoreVersion[];
+}
+
+// One award's scores from the request body, after validation
 interface DraftItem {
   awardId: string;
   criteriaScores: CriterionScore[];
@@ -66,6 +95,7 @@ export interface ScoreVersion {
   comments: CriterionComment[];
   savedAt: Date;
 }
+
 /**
  * Connect to the database and prepare the scores collection.
  */
@@ -248,6 +278,140 @@ export async function getRawScores(
   return readScores(teamId, judgeId);
 }
 
+/**
+ * The scores of one judge in one event, grouped by team.
+ * Every team the judge is assigned to is listed, even if it has no scores yet.
+ */
+export async function getScoresByJudge(
+  eventId: string,
+  judgeId: string,
+): Promise<TeamScores[]> {
+  if (!scoresCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  // Each of these throws InvalidInputError if the record does not exist
+  await eventModel.getEventById(eventId);
+  await judgeModel.getJudgeById(judgeId);
+
+  try {
+    const assignments = await judgingAssignmentModel.findAssignmentsOfJudge(
+      eventId,
+      judgeId,
+    );
+    const scores = await scoresCollection
+      .find({ eventId, judgeId })
+      .sort({ createdAt: 1, _id: 1 })
+      .toArray();
+    const teams = await teamModel
+      .getCollection()
+      .find({ _id: { $in: assignments.map((a) => new ObjectId(a.teamId)) } })
+      .toArray();
+    const teamById = new Map(teams.map((t) => [t._id.toString(), t]));
+
+    return assignments.map((a) => ({
+      teamId: a.teamId,
+      teamName: teamById.get(a.teamId)?.name ?? "",
+      tableNumber: teamById.get(a.teamId)?.tableNumber,
+      status: a.status,
+      slotAt: a.slotAt,
+      interimSubmittedAt: a.interimSubmittedAt,
+      finalSubmittedAt: a.finalSubmittedAt,
+      awards: scores.filter((s) => s.teamId === a.teamId).map(toView),
+    }));
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to retrieve the scores of the judge",
+    );
+  }
+}
+
+/**
+ * The scores of one team from every judge who has scored it.
+ */
+export async function getScoresByTeam(teamId: string): Promise<JudgeScores[]> {
+  if (!scoresCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  // Throws InvalidInputError if the team does not exist
+  const team = await teamModel.getTeamById(teamId);
+
+  let docs: Score[];
+  try {
+    docs = await scoresCollection
+      .find({ teamId })
+      .sort({ createdAt: 1, _id: 1 })
+      .toArray();
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to retrieve the scores of the team",
+    );
+  }
+
+  const byJudge = new Map<string, Score[]>();
+  for (const doc of docs) {
+    const list = byJudge.get(doc.judgeId) ?? [];
+    list.push(doc);
+    byJudge.set(doc.judgeId, list);
+  }
+
+  const result: JudgeScores[] = [];
+  for (const [judgeId, judgeDocs] of byJudge) {
+    const judge = await judgeModel.getJudgeById(judgeId);
+    const assignment = await judgingAssignmentModel.findAssignment(
+      team.eventId,
+      judgeId,
+      teamId,
+    );
+    result.push({
+      judgeId,
+      judgeName: `${judge.firstName} ${judge.lastName}`,
+      interimSubmittedAt: assignment?.interimSubmittedAt,
+      finalSubmittedAt: assignment?.finalSubmittedAt,
+      awards: judgeDocs.map(toView),
+    });
+  }
+  return result;
+}
+
+/**
+ * Every version of the scores of one judge for one team, per award.
+ * The old versions come first and the current version is the last one.
+ */
+export async function getScoreHistory(
+  teamId: string,
+  judgeId: string,
+): Promise<AwardHistory[]> {
+  if (!scoresCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  // Each of these throws InvalidInputError if the record does not exist
+  await teamModel.getTeamById(teamId);
+  await judgeModel.getJudgeById(judgeId);
+
+  try {
+    const docs = await scoresCollection
+      .find({ teamId, judgeId })
+      .sort({ createdAt: 1, _id: 1 })
+      .toArray();
+    return docs.map((d) => ({
+      awardId: d.awardId,
+      versions: [
+        ...(d.history ?? []),
+        {
+          version: d.version,
+          criteriaScores: d.criteriaScores,
+          comments: d.comments,
+          savedAt: d.updatedAt,
+        },
+      ],
+    }));
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to retrieve the score history",
+    );
+  }
+}
+
 //#endregion
 
 export async function close() {
@@ -280,13 +444,7 @@ async function readScores(
       .find({ teamId, judgeId })
       .sort({ createdAt: 1, _id: 1 })
       .toArray();
-    return docs.map((d) => ({
-      awardId: d.awardId,
-      criteriaScores: d.criteriaScores,
-      comments: d.comments,
-      version: d.version,
-      updatedAt: d.updatedAt,
-    }));
+    return docs.map(toView);
   } catch (err) {
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve scores",
@@ -587,5 +745,15 @@ async function assertAllComplete(
         `Cannot submit: award '${award.name}' is missing ${missing.length} criteria score(s)`,
       );
   }
+}
+
+function toView(d: Score): ScoreView {
+  return {
+    awardId: d.awardId,
+    criteriaScores: d.criteriaScores,
+    comments: d.comments,
+    version: d.version,
+    updatedAt: d.updatedAt,
+  };
 }
 //#endregion

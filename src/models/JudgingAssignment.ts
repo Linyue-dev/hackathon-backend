@@ -443,4 +443,17 @@ export async function findAssignment(
 ): Promise<WithId<JudgingAssignment> | null> {
   return getCollection().findOne({ eventId, judgeId, teamId });
 }
+
+/**
+ * All assignments of one judge in an event, in time slot order.
+ */
+export async function findAssignmentsOfJudge(
+  eventId: string,
+  judgeId: string,
+): Promise<WithId<JudgingAssignment>[]> {
+  return getCollection()
+    .find({ eventId, judgeId })
+    .sort({ slotAt: 1, createdAt: 1 })
+    .toArray();
+}
 //#endregion
