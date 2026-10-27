@@ -16,6 +16,16 @@ router.delete("/judges/:id", deleteJudge);
 
 // ============ Handlers ============
 
+/**
+ * POST /judges
+ * Create a judge in the shared judge directory. A judge is not tied to one
+ * event; use POST /events/:id/assignJudge to add a judge to an event.
+ * Body: firstName, lastName and email (required). Optional: affiliation,
+ * isScience, proficiency, yearsParticipated, phone, notes.
+ * The email must be valid and unique.
+ * Returns 201 with the judge.
+ * Errors: 400 invalid input or email already used.
+ */
 async function createJudge(req: Request, res: Response) {
   try {
     const {
@@ -46,6 +56,14 @@ async function createJudge(req: Request, res: Response) {
   }
 }
 
+/**
+ * GET /judges?search=&page=&limit=
+ * List the judge directory.
+ * search matches first name, last name, email or affiliation (partial, not
+ * case-sensitive).
+ * Returns 200 with a plain array. The total number of matches is in the
+ * X-Total-Count response header.
+ */
 async function getJudges(req: Request, res: Response) {
   try {
     const { search, page, limit } = req.query;
@@ -60,6 +78,11 @@ async function getJudges(req: Request, res: Response) {
   }
 }
 
+/**
+ * GET /judges/:id
+ * One judge.
+ * Errors: 400 if the judge does not exist.
+ */
 async function getJudgeById(req: Request<IdParams>, res: Response) {
   try {
     const judge = await judgeModel.getJudgeById(req.params.id);
@@ -69,6 +92,14 @@ async function getJudgeById(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * PATCH /judges/:id
+ * Change the profile of a judge. Send only the fields to change (the same
+ * fields as when creating).
+ * Returns 200 with the updated judge.
+ * Errors: 400 invalid input, a field that cannot be updated, email already
+ * used, or judge not found.
+ */
 async function updateJudge(req: Request<IdParams>, res: Response) {
   try {
     const judge = await judgeModel.updateJudgeById(
@@ -81,6 +112,13 @@ async function updateJudge(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * DELETE /judges/:id
+ * Delete a judge. Returns 200 with { message, judge }.
+ * Note: there is no check yet for events, assignments or scores that use the
+ * judge; the delete rules are still to be decided.
+ * Errors: 400 if the judge does not exist.
+ */
 async function deleteJudge(req: Request<IdParams>, res: Response) {
   try {
     const judge = await judgeModel.deleteJudgeById(req.params.id);

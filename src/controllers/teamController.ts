@@ -16,6 +16,19 @@ router.delete("/teams/:id", deleteTeam);
 
 // ============ Handlers ============
 
+/**
+ * POST /events/:id/teams
+ * Add a team to an event. :id is the event id.
+ * Body: name (required). Optional:
+ *  - tableNumber: positive integer, unique inside the event
+ *  - room, projectUrl, projectDescription: strings
+ *  - members: list of { firstName, lastName, email, program, year, school? }
+ *  - schools: list of strings
+ *  - status: "active" (default), "disqualified" or "withdrawn"
+ *  - source: "manual" (default) or "devpost"; devpostId: string
+ * Returns 201 with the team.
+ * Errors: 400 invalid input, event not found or table number already used.
+ */
 async function createTeam(req: Request<IdParams>, res: Response) {
   try {
     // The event id comes from the path, not from the body
@@ -29,6 +42,16 @@ async function createTeam(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * GET /events/:id/teams?status=&search=&page=&limit=
+ * List the teams of an event, newest first. :id is the event id.
+ * status: "active", "disqualified" or "withdrawn".
+ * search matches the team name (partial, not case-sensitive).
+ * Returns 200 with a plain array. The total number of matches is in the
+ * X-Total-Count response header.
+ * Note: the filters awardId and verification are not available yet.
+ * Errors: 400 invalid status.
+ */
 async function getTeams(req: Request<IdParams>, res: Response) {
   try {
     const { status, search, page, limit } = req.query;
@@ -48,6 +71,11 @@ async function getTeams(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * GET /teams/:id
+ * One team.
+ * Errors: 400 if the team does not exist.
+ */
 async function getTeamById(req: Request<IdParams>, res: Response) {
   try {
     const team = await teamModel.getTeamById(req.params.id);
@@ -57,6 +85,16 @@ async function getTeamById(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * PATCH /teams/:id
+ * Change some fields of a team. Send only the fields to change.
+ * Allowed: name, tableNumber, room, members, schools, projectUrl,
+ * projectDescription, status. members and schools are replaced as a whole.
+ * Not allowed: eventId, source, devpostId, importedAt.
+ * Returns 200 with the updated team.
+ * Errors: 400 invalid input, a field that cannot be updated, table number
+ * already used, or team not found.
+ */
 async function updateTeam(req: Request<IdParams>, res: Response) {
   try {
     const team = await teamModel.updateTeamById(req.params.id, req.body ?? {});
@@ -66,6 +104,13 @@ async function updateTeam(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * DELETE /teams/:id
+ * Delete a team. Returns 200 with { message, team }.
+ * Note: there is no check yet for assignments or scores of the team; the
+ * delete rules are still to be decided.
+ * Errors: 400 if the team does not exist.
+ */
 async function deleteTeam(req: Request<IdParams>, res: Response) {
   try {
     const team = await teamModel.deleteTeamById(req.params.id);

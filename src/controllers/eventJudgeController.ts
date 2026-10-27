@@ -4,7 +4,7 @@ import * as eventJudgeModel from "./../models/EventJudge.js";
 import { handleError } from "../utils/errorHandler.js";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { parsePagination } from "../utils/pagination.js";
-import * as judgingAssignmentModel from "./../models/JudgingAssignment.js"
+import * as judgingAssignmentModel from "./../models/JudgingAssignment.js";
 const router = express.Router();
 export const routeRoot = "/api/v1";
 type EventJudgeParams = IdParams & { judgeId: string };
@@ -21,6 +21,17 @@ router.delete("/events/:id/removeJudge/:judgeId", removeJudge);
 
 // ============ Handlers ============
 
+/**
+ * POST /events/:id/assignJudge
+ * Add existing judges to an event. :id is the event id.
+ * Body: judgeIds (required): list of judge ids.
+ *       type (optional, default "technical"): "technical", "beginner" or "design".
+ * Judges that are already in the event are skipped, not an error.
+ * Returns 201 if at least one judge was added, otherwise 200, with
+ * { added: [...], alreadyAdded: [...] }.
+ * Note: conflict warnings are not returned yet.
+ * Errors: 400 invalid input, event not found or a judge not found.
+ */
 async function assignJudges(req: Request<IdParams>, res: Response) {
   try {
     const { judgeIds, type } = req.body ?? {};
@@ -35,6 +46,16 @@ async function assignJudges(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * GET /events/:id/judges?type=&hasConflicts=&page=&limit=
+ * The judges of an event. :id is the event id.
+ * type: "technical", "beginner" or "design".
+ * hasConflicts: "true" or "false".
+ * Each item: { eventId, judgeId, type, awardIds, conflicts, notes, createdAt }.
+ * Returns 200 with a plain array. The total number of matches is in the
+ * X-Total-Count response header.
+ * Errors: 400 invalid filter value.
+ */
 async function getEventJudges(req: Request<IdParams>, res: Response) {
   try {
     const { type, hasConflicts, page, limit } = req.query;
@@ -62,6 +83,11 @@ async function getEventJudges(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * GET /events/:id/judges/:judgeId
+ * One judge of an event. :id is the event id.
+ * Errors: 400 if the judge is not in the event.
+ */
 async function getEventJudge(req: Request<EventJudgeParams>, res: Response) {
   try {
     const result = await eventJudgeModel.getEventJudge(
@@ -74,6 +100,15 @@ async function getEventJudge(req: Request<EventJudgeParams>, res: Response) {
   }
 }
 
+/**
+ * PATCH /events/:id/judges/:judgeId
+ * Change a judge's settings in this event. Send only the fields to change.
+ * Allowed: type ("technical", "beginner" or "design"), awardIds (list of award
+ * ids; each must exist and belong to this event), notes.
+ * Returns 200 with the updated event judge.
+ * Errors: 400 invalid input, a field that cannot be updated, or the judge is
+ * not in the event.
+ */
 async function updateEventJudge(req: Request<EventJudgeParams>, res: Response) {
   try {
     res.json(
@@ -88,6 +123,16 @@ async function updateEventJudge(req: Request<EventJudgeParams>, res: Response) {
   }
 }
 
+/**
+ * PUT /events/:id/judges/:judgeId/conflicts
+ * Set the teams this judge has a conflict of interest with. The list is
+ * replaced as a whole; send an empty list to clear it.
+ * Body: teamIds (required): list of team ids; each team must exist and belong
+ * to this event. reason (optional): string, stored on every conflict.
+ * Returns 200 with the updated event judge.
+ * Note: assignments that already exist are not checked or removed.
+ * Errors: 400 invalid input or the judge is not in the event.
+ */
 async function setConflicts(req: Request<EventJudgeParams>, res: Response) {
   try {
     const { teamIds, reason } = req.body ?? {};
@@ -104,6 +149,14 @@ async function setConflicts(req: Request<EventJudgeParams>, res: Response) {
   }
 }
 
+/**
+ * DELETE /events/:id/removeJudge/:judgeId
+ * Remove a judge from an event. All of the judge's assignments in this event
+ * are deleted too.
+ * Returns 200 with { message, eventJudge, releasedAssignments } where
+ * releasedAssignments is the number of assignments that were deleted.
+ * Errors: 400 if the judge is not in the event.
+ */
 async function removeJudge(req: Request<EventJudgeParams>, res: Response) {
   try {
     const { id, judgeId } = req.params;

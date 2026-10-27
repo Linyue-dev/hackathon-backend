@@ -16,6 +16,17 @@ router.delete("/assignments/:id", deleteJudgingAssignment);
 
 // ============ Handlers ============
 
+/**
+ * POST /events/:id/assignments
+ * Assign one judge to one team. :id is the event id.
+ * Body: judgeId and teamId (required), slotAt (optional, a date and time).
+ * The team must belong to the event and have status "active". A judge can be
+ * assigned to the same team only once.
+ * Returns 201 with the assignment. Its status starts as "pending".
+ * Note: conflicts of interest are not checked yet.
+ * Errors: 400 invalid input, event, judge or team not found, team in another
+ * event, team not active, or judge already assigned to the team.
+ */
 async function createJudgingAssignment(req: Request<IdParams>, res: Response) {
   try {
     // The event id comes from the path, not from the body
@@ -32,6 +43,18 @@ async function createJudgingAssignment(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * GET /events/:id/assignments?judgeId=&teamId=&status=&page=&limit=
+ * List the assignments of an event, newest first. :id is the event id.
+ * judgeId: only this judge ("my teams"). teamId: only this team.
+ * status: "pending", "in-progress" or "completed".
+ * Each item: { judgeId, teamId, eventId, status, slotAt, interimSubmittedAt,
+ * finalSubmittedAt, createdAt, updatedAt }. The two submitted times are empty
+ * until the judge submits.
+ * Returns 200 with a plain array. The total number of matches is in the
+ * X-Total-Count response header.
+ * Errors: 400 invalid status.
+ */
 async function getJudgingAssignments(req: Request<IdParams>, res: Response) {
   try {
     const { judgeId, teamId, status, page, limit } = req.query;
@@ -52,6 +75,11 @@ async function getJudgingAssignments(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * GET /assignments/:id
+ * One assignment.
+ * Errors: 400 if the assignment does not exist.
+ */
 async function getJudgingAssignmentById(req: Request<IdParams>, res: Response) {
   try {
     const assignment = await judgingAssignmentModel.getJudgingAssignmentById(
@@ -63,6 +91,15 @@ async function getJudgingAssignmentById(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * PATCH /assignments/:id
+ * Change the time slot or the status. Send only the fields to change.
+ * Allowed: status ("pending", "in-progress" or "completed"), slotAt.
+ * The judge, team and event cannot be changed.
+ * Note: submitting the scores of a team sets the status to "completed" by itself.
+ * Returns 200 with the updated assignment.
+ * Errors: 400 invalid input, a field that cannot be updated, or assignment not found.
+ */
 async function updateJudgingAssignment(req: Request<IdParams>, res: Response) {
   try {
     const assignment = await judgingAssignmentModel.updateJudgingAssignmentById(
@@ -75,6 +112,12 @@ async function updateJudgingAssignment(req: Request<IdParams>, res: Response) {
   }
 }
 
+/**
+ * DELETE /assignments/:id
+ * Remove an assignment. Returns 200 with { message, assignment }.
+ * Note: it is not refused yet when the judge already has scores for the team.
+ * Errors: 400 if the assignment does not exist.
+ */
 async function deleteJudgingAssignment(req: Request<IdParams>, res: Response) {
   try {
     const assignment = await judgingAssignmentModel.deleteJudgingAssignmentById(
