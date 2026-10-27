@@ -20,12 +20,14 @@ router.delete("/assignments/:id", deleteJudgingAssignment);
  * POST /events/:id/assignments
  * Assign one judge to one team. :id is the event id.
  * Body: judgeId and teamId (required), slotAt (optional, a date and time).
- * The team must belong to the event and have status "active". A judge can be
- * assigned to the same team only once.
+ * The judge must be in the event, the team must belong to the event and have
+ * status "active", and the team must not be one of the judge's conflicts.
+ * A judge can be assigned to the same team only once.
  * Returns 201 with the assignment. Its status starts as "pending".
- * Note: conflicts of interest are not checked yet.
- * Errors: 400 invalid input, event, judge or team not found, team in another
- * event, team not active, or judge already assigned to the team.
+ * Errors:
+ *   400 invalid_input - the judge is not in the event, the team is not in the event
+ *                       or is not active, or the judge is already assigned to the team
+ *   409 conflict_of_interest - the team is in the judge's conflict list
  */
 async function createJudgingAssignment(req: Request<IdParams>, res: Response) {
   try {

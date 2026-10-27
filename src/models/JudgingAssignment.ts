@@ -17,7 +17,9 @@ import {
 import * as eventModel from "./Event.js";
 import * as judgeModel from "./Judge.js";
 import * as teamModel from "./Team.js";
+import * as eventJudgeModel from "./EventJudge.js";
 import { DEFAULT_LIMIT, Pagination } from "../utils/pagination.js";
+import { AppError } from "../errors/AppError.js";
 
 let client: MongoClient;
 export let judgingAssignmentsCollection: Collection<JudgingAssignment>;
@@ -105,8 +107,8 @@ export async function initialize(
  * Assign a judge to a team. Status always starts as "pending".
  * The event, judge and team must exist, the team must belong to the event and
  * be "active", and the same judge cannot be assigned to the same team twice.
- * TODO: also check that the judge is in the event (EventJudge) and that the
- * team is not one of the judge's conflicts.
+ * The judge must be in the event (EventJudge) and the team must not be one
+ * of the judge's conflicts (409 conflict_of_interest).
  */
 export async function addJudgingAssignment(
   input: NewJudgingAssignmentInput,
@@ -132,6 +134,17 @@ export async function addJudgingAssignment(
   if (team.status !== "active")
     throw new InvalidInputError(
       `Invalid input: cannot assign a team whose status is '${team.status}'`,
+    );
+
+  // The judge must already be in this event (throws InvalidInputError if not)
+  const eventJudge = await eventJudgeModel.getEventJudge(eventId, judgeId);
+
+  // Being in the event is fine, but not for a team listed in the judge's conflicts
+  if (eventJudge.conflicts.some((c) => c.teamId === teamId))
+    throw new AppError(
+      409,
+      "conflict_of_interest",
+      "This judge has a conflict with this team",
     );
 
   const existing = await judgingAssignmentsCollection.findOne({
