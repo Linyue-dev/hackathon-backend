@@ -12,6 +12,7 @@ router.put("/scores/:teamId/:judgeId", saveDraftScores);
 router.get("/scores/:teamId/raw/:judgeId", getRawScores);
 router.post("/scores/:teamId/submit/:judgeId", submitScores);
 router.patch("/scores/:teamId/:judgeId", updateScores);
+router.post("/scores/:teamId/final/:judgeId", finalSubmitScores);
 
 // ============ Handlers ============
 /**
@@ -76,6 +77,24 @@ async function updateScores(req: Request<ScoreParams>, res: Response) {
   try {
     const { teamId, judgeId } = req.params;
     res.json(await scoreModel.updateScores(teamId, judgeId, req.body));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * POST /scores/:teamId/final/:judgeId
+ * Final submit for a team. The scores must have been submitted before.
+ * Same body as the PATCH; changed awards get a new version. Records the
+ * final submit time on the assignment, and the scores are locked after it.
+ * Returns 200 with the final scores.
+ * Errors: 400 invalid input, 409 not_submitted or final_submitted,
+ * 422 incomplete_scores, 423 judging_closed.
+ */
+async function finalSubmitScores(req: Request<ScoreParams>, res: Response) {
+  try {
+    const { teamId, judgeId } = req.params;
+    res.json(await scoreModel.finalSubmitScores(teamId, judgeId, req.body));
   } catch (err) {
     handleError(err, res);
   }

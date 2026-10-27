@@ -197,6 +197,35 @@ export async function updateScores(
   return readScores(teamId, judgeId);
 }
 
+/**
+ * Final submit for one judge and team. The scores must have been submitted
+ * before. The body is saved like an update, then the scores are locked.
+ */
+export async function finalSubmitScores(
+  teamId: string,
+  judgeId: string,
+  body: unknown,
+): Promise<ScoreView[]> {
+  if (!scoresCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  assertBodyList(body);
+
+  const { team, assignment } = await loadJudgingContext(teamId, judgeId);
+  if (!assignment.interimSubmittedAt)
+    throw new AppError(
+      409,
+      "not_submitted",
+      "Scores must be submitted before the final submit",
+    );
+
+  const items = await validateItems(body, team.eventId);
+  await assertAllComplete(teamId, judgeId, items);
+
+  await replaceWithHistory(team.eventId, teamId, judgeId, items);
+  await judgingAssignmentModel.markFinalSubmitted(assignment._id, new Date());
+  return readScores(teamId, judgeId);
+}
+
 //#endregion
 
 //#region Get functions
@@ -424,6 +453,14 @@ async function loadJudgingContext(teamId: string, judgeId: string) {
     throw new InvalidInputError("This judge is not assigned to this team");
 
   await assertJudgingOpen(team.eventId);
+
+  if (assignment.finalSubmittedAt)
+    throw new AppError(
+      409,
+      "final_submitted",
+      "The final scores were already submitted and cannot be changed",
+    );
+
   return { team, assignment };
 }
 

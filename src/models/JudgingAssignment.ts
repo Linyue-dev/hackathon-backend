@@ -329,6 +329,19 @@ export async function markInterimSubmitted(
   );
 }
 
+/**
+ * Record the time a judge made the final submit for a team.
+ */
+export async function markFinalSubmitted(
+  id: ObjectId,
+  at: Date,
+): Promise<void> {
+  await getCollection().updateOne(
+    { _id: id },
+    { $set: { finalSubmittedAt: at, updatedAt: at } },
+  );
+}
+
 //#endregion
 
 //#region Delete functions
