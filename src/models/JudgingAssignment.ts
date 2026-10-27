@@ -31,6 +31,8 @@ export interface JudgingAssignment {
   teamId: string;
   status: "pending" | "in-progress" | "completed";
   slotAt?: Date;
+  interimSubmittedAt?: Date;
+  finalSubmittedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -312,6 +314,19 @@ export async function updateJudgingAssignmentById(
       );
     else throw new Error("Unknown error " + err);
   }
+}
+
+/**
+ * Record the time a judge first submitted their scores for a team.
+ */
+export async function markInterimSubmitted(
+  id: ObjectId,
+  at: Date,
+): Promise<void> {
+  await getCollection().updateOne(
+    { _id: id },
+    { $set: { interimSubmittedAt: at, status: "completed", updatedAt: at } },
+  );
 }
 
 //#endregion

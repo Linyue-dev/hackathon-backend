@@ -10,9 +10,10 @@ type ScoreParams = { teamId: string; judgeId: string };
 // ============ Routes ============
 router.put("/scores/:teamId/:judgeId", saveDraftScores);
 router.get("/scores/:teamId/raw/:judgeId", getRawScores);
+router.post("/scores/:teamId/submit/:judgeId", submitScores);
+router.patch("/scores/:teamId/:judgeId", updateScores);
 
 // ============ Handlers ============
-
 /**
  * PUT /scores/:teamId/:judgeId
  * Autosave the draft scores of one judge for one team.
@@ -46,5 +47,37 @@ async function getRawScores(req: Request<ScoreParams>, res: Response) {
     handleError(err, res);
   }
 }
+/**
+ * POST /scores/:teamId/submit/:judgeId
+ * Submit the judge's scores for a team (first time). Same body as the PUT.
+ * Every award with scores must have all its criteria scored.
+ * Records the submit time on the assignment. Returns 200 with the saved scores.
+ * Errors: 400 invalid input, 409 already_submitted or judging_not_started,
+ * 422 incomplete_scores, 423 judging_closed.
+ */
+async function submitScores(req: Request<ScoreParams>, res: Response) {
+  try {
+    const { teamId, judgeId } = req.params;
+    res.json(await scoreModel.submitScores(teamId, judgeId, req.body));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
 
+/**
+ * PATCH /scores/:teamId/:judgeId
+ * Change scores after the first submit. Same body as the PUT.
+ * Changed awards get a new version; the old one is kept in history.
+ * Returns 200 with the current scores.
+ * Errors: 400 invalid input, 409 not_submitted, 422 incomplete_scores,
+ * 423 judging_closed.
+ */
+async function updateScores(req: Request<ScoreParams>, res: Response) {
+  try {
+    const { teamId, judgeId } = req.params;
+    res.json(await scoreModel.updateScores(teamId, judgeId, req.body));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
 export default router;

@@ -52,6 +52,20 @@ interface DraftItem {
   comments: CriterionComment[];
 }
 
+// An older version of a score, kept when the judge changes it after submitting
+export interface ScoreVersion {
+  version: number;
+  criteriaScores: CriterionScore[];
+  comments: CriterionComment[];
+  savedAt: Date;
+}
+// An older version of a score, kept when the judge changes it after submitting
+export interface ScoreVersion {
+  version: number;
+  criteriaScores: CriterionScore[];
+  comments: CriterionComment[];
+  savedAt: Date;
+}
 /**
  * Connect to the database and prepare the scores collection.
  */
@@ -100,6 +114,7 @@ export async function initialize(
  * The body is a list with one item per award. Each award in the list is
  * replaced as a whole; awards that are not in the list are left untouched.
  * Partial criteria and decimal values are allowed, so it is safe to repeat.
+ * Not allowed after the first submit; use updateScores then.
  */
 export async function saveDraftScores(
   teamId: string,
@@ -108,55 +123,77 @@ export async function saveDraftScores(
 ): Promise<ScoreView[]> {
   if (!scoresCollection)
     throw new DatabaseError("Database Collection object not initialized");
+  assertBodyList(body);
 
-  if (!Array.isArray(body) || body.length === 0)
-    throw new InvalidInputError(
-      "Invalid input: body must be a non-empty list of award scores",
+  const { team, assignment } = await loadJudgingContext(teamId, judgeId);
+  if (assignment.interimSubmittedAt)
+    throw new AppError(
+      409,
+      "already_submitted",
+      "Scores were already submitted; use PATCH to change them",
     );
-
-  // Each of these throws InvalidInputError if the record does not exist
-  const team = await teamModel.getTeamById(teamId);
-  await judgeModel.getJudgeById(judgeId);
-
-  const assignment = await judgingAssignmentModel.findAssignment(
-    team.eventId,
-    judgeId,
-    teamId,
-  );
-  if (!assignment)
-    throw new InvalidInputError("This judge is not assigned to this team");
-
-  await assertJudgingOpen(team.eventId);
 
   // Check every item before anything is saved
   const items = await validateItems(body, team.eventId);
+  await upsertDraftItems(team.eventId, teamId, judgeId, items);
+  return readScores(teamId, judgeId);
+}
 
-  const now = new Date();
-  try {
-    await Promise.all(
-      items.map((item) =>
-        scoresCollection.updateOne(
-          { teamId, judgeId, awardId: item.awardId },
-          {
-            $set: {
-              eventId: team.eventId,
-              criteriaScores: item.criteriaScores,
-              comments: item.comments,
-              updatedAt: now,
-            },
-            $setOnInsert: { version: 1, createdAt: now },
-          },
-          { upsert: true },
-        ),
-      ),
-    );
-  } catch (err: unknown) {
-    throw new DatabaseError(
-      "Database error: unable to save scores" +
-        (err instanceof Error ? "; " + err.message : ""),
-    );
-  }
+/**
+ * Submit the scores of one judge for one team (first time).
+ * Every award of the team that has scores must have a value for every criterion.
+ * Saves the body like a draft, then records the submit time on the assignment.
+ */
+export async function submitScores(
+  teamId: string,
+  judgeId: string,
+  body: unknown,
+): Promise<ScoreView[]> {
+  if (!scoresCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  assertBodyList(body);
 
+  const { team, assignment } = await loadJudgingContext(teamId, judgeId);
+  if (assignment.interimSubmittedAt)
+    throw new AppError(
+      409,
+      "already_submitted",
+      "Scores were already submitted; use PATCH to change them",
+    );
+
+  const items = await validateItems(body, team.eventId);
+  await assertAllComplete(teamId, judgeId, items);
+
+  await upsertDraftItems(team.eventId, teamId, judgeId, items);
+  await judgingAssignmentModel.markInterimSubmitted(assignment._id, new Date());
+  return readScores(teamId, judgeId);
+}
+
+/**
+ * Change scores after the first submit. Each award in the body is replaced.
+ * If its content changed, the old version goes to history and version goes up.
+ */
+export async function updateScores(
+  teamId: string,
+  judgeId: string,
+  body: unknown,
+): Promise<ScoreView[]> {
+  if (!scoresCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  assertBodyList(body);
+
+  const { team, assignment } = await loadJudgingContext(teamId, judgeId);
+  if (!assignment.interimSubmittedAt)
+    throw new AppError(
+      409,
+      "not_submitted",
+      "Scores are not submitted yet; use PUT to save a draft",
+    );
+
+  const items = await validateItems(body, team.eventId);
+  await assertAllComplete(teamId, judgeId, items);
+
+  await replaceWithHistory(team.eventId, teamId, judgeId, items);
   return readScores(teamId, judgeId);
 }
 
@@ -363,5 +400,155 @@ function normalizeComments(value: unknown, n: number): CriterionComment[] {
     return { category: category.trim(), comment };
   });
 }
+function assertBodyList(body: unknown): asserts body is unknown[] {
+  if (!Array.isArray(body) || body.length === 0)
+    throw new InvalidInputError(
+      "Invalid input: body must be a non-empty list of award scores",
+    );
+}
 
+/**
+ * Check the team, judge, assignment and judging window that every write needs.
+ */
+async function loadJudgingContext(teamId: string, judgeId: string) {
+  // Each of these throws InvalidInputError if the record does not exist
+  const team = await teamModel.getTeamById(teamId);
+  await judgeModel.getJudgeById(judgeId);
+
+  const assignment = await judgingAssignmentModel.findAssignment(
+    team.eventId,
+    judgeId,
+    teamId,
+  );
+  if (!assignment)
+    throw new InvalidInputError("This judge is not assigned to this team");
+
+  await assertJudgingOpen(team.eventId);
+  return { team, assignment };
+}
+
+async function upsertDraftItems(
+  eventId: string,
+  teamId: string,
+  judgeId: string,
+  items: DraftItem[],
+): Promise<void> {
+  const now = new Date();
+  try {
+    await Promise.all(
+      items.map((item) =>
+        scoresCollection.updateOne(
+          { teamId, judgeId, awardId: item.awardId },
+          {
+            $set: {
+              eventId,
+              criteriaScores: item.criteriaScores,
+              comments: item.comments,
+              updatedAt: now,
+            },
+            $setOnInsert: { version: 1, history: [], createdAt: now },
+          },
+          { upsert: true },
+        ),
+      ),
+    );
+  } catch (err: unknown) {
+    throw new DatabaseError(
+      "Database error: unable to save scores" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+}
+
+/**
+ * Replace each award in the list. A changed award keeps its old content in history.
+ */
+async function replaceWithHistory(
+  eventId: string,
+  teamId: string,
+  judgeId: string,
+  items: DraftItem[],
+): Promise<void> {
+  const now = new Date();
+  try {
+    for (const item of items) {
+      const old = await scoresCollection.findOne({
+        teamId,
+        judgeId,
+        awardId: item.awardId,
+      });
+
+      // An award that was never scored before is simply created
+      if (!old) {
+        await upsertDraftItems(eventId, teamId, judgeId, [item]);
+        continue;
+      }
+
+      const unchanged =
+        JSON.stringify({
+          criteriaScores: old.criteriaScores,
+          comments: old.comments,
+        }) ===
+        JSON.stringify({
+          criteriaScores: item.criteriaScores,
+          comments: item.comments,
+        });
+      if (unchanged) continue;
+
+      await scoresCollection.updateOne(
+        { _id: old._id },
+        {
+          $set: {
+            criteriaScores: item.criteriaScores,
+            comments: item.comments,
+            version: old.version + 1,
+            updatedAt: now,
+          },
+          $push: {
+            history: {
+              version: old.version,
+              criteriaScores: old.criteriaScores,
+              comments: old.comments,
+              savedAt: old.updatedAt,
+            },
+          },
+        },
+      );
+    }
+  } catch (err: unknown) {
+    throw new DatabaseError(
+      "Database error: unable to update scores" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+}
+
+/**
+ * Every award that has scores (already saved or in this request) must have
+ * a value for each of its criteria. The request overrides what was saved.
+ * TODO: when TeamEntry exists, also require every award the team entered.
+ */
+async function assertAllComplete(
+  teamId: string,
+  judgeId: string,
+  items: DraftItem[],
+): Promise<void> {
+  const byAward = new Map<string, CriterionScore[]>();
+  for (const saved of await readScores(teamId, judgeId))
+    byAward.set(saved.awardId, saved.criteriaScores);
+  for (const item of items) byAward.set(item.awardId, item.criteriaScores);
+
+  for (const [awardId, scores] of byAward) {
+    const award = await awardModel.getAwardById(awardId);
+    const missing = award.criteria.filter(
+      (c) => !scores.some((s) => s.criterionId === c.id),
+    );
+    if (missing.length > 0)
+      throw new AppError(
+        422,
+        "incomplete_scores",
+        `Cannot submit: award '${award.name}' is missing ${missing.length} criteria score(s)`,
+      );
+  }
+}
 //#endregion
