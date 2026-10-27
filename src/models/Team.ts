@@ -24,6 +24,7 @@ export let teamsCollection: Collection<Team>;
 
 const collectionName: string = "teams";
 
+// One person in a team. Emails are stored in lower case.
 export interface TeamMember {
   firstName: string;
   lastName: string;
@@ -33,19 +34,24 @@ export interface TeamMember {
   school?: string;
 }
 
+// A team belongs to exactly one event (eventId never changes).
 export interface Team {
   _id?: ObjectId;
   eventId: string;
   name: string;
+  // Positive integer, unique inside the event
   tableNumber?: number;
   room?: string;
   members: TeamMember[];
   schools: string[];
   projectUrl?: string;
   projectDescription?: string;
+  // Only "active" teams can be assigned to judges. Defaults to "active"
   status: "active" | "disqualified" | "withdrawn";
+  // How the team was created. Defaults to "manual"
   source: "manual" | "devpost";
   devpostId?: string;
+  // Set only when source is "devpost"
   importedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -125,6 +131,9 @@ export async function initialize(
 
 /**
  * Add a new team to an event.
+ * Everything is checked before the team is saved: the event must exist, the
+ * members need a valid email, and tableNumber must not be used by another
+ * team of the same event.
  */
 export async function addTeam(input: NewTeamInput): Promise<Team> {
   if (!teamsCollection)
@@ -278,6 +287,12 @@ export async function getAllTeams(
 
 //#region Update functions
 
+/**
+ * Change some fields of a team (partial update, like PATCH).
+ * eventId, source, devpostId and importedAt cannot be changed.
+ * members is replaced as a whole, not merged. A new tableNumber must be free
+ * in the team's event.
+ */
 export async function updateTeamById(
   id: string,
   updates: Partial<Omit<Team, "_id" | "eventId" | "createdAt" | "updatedAt">>,
@@ -359,6 +374,10 @@ export async function updateTeamById(
 
 //#region Delete functions
 
+/**
+ * Delete a team and return it.
+ * Only the team is deleted: its assignments and scores are not checked or removed.
+ */
 export async function deleteTeamById(id: string): Promise<Team> {
   if (!teamsCollection)
     throw new DatabaseError("Database Collection object not initialized");

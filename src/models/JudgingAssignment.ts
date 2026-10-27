@@ -24,14 +24,21 @@ export let judgingAssignmentsCollection: Collection<JudgingAssignment>;
 
 const collectionName: string = "judgingAssignments";
 
+// One judge assigned to one team in one event (unique per judge + team).
+// It also tracks how far the judge is with scoring that team, see the
+// submit times below. The scores themselves are in the Score model.
 export interface JudgingAssignment {
   _id?: ObjectId;
   eventId: string;
   judgeId: string;
   teamId: string;
+  // Starts as "pending". Becomes "completed" at the first submit of scores
   status: "pending" | "in-progress" | "completed";
+  // Planned time slot for this judge to visit the team
   slotAt?: Date;
+  // Set at the first submit. Scores can then only be changed with PATCH
   interimSubmittedAt?: Date;
+  // Set at the final submit. Scores are locked after that
   finalSubmittedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -96,6 +103,10 @@ export async function initialize(
 
 /**
  * Assign a judge to a team. Status always starts as "pending".
+ * The event, judge and team must exist, the team must belong to the event and
+ * be "active", and the same judge cannot be assigned to the same team twice.
+ * TODO: also check that the judge is in the event (EventJudge) and that the
+ * team is not one of the judge's conflicts.
  */
 export async function addJudgingAssignment(
   input: NewJudgingAssignmentInput,
@@ -247,6 +258,11 @@ export async function getAllJudgingAssignments(
 
 //#region Update functions
 
+/**
+ * Change the status or slotAt of an assignment (partial update, like PATCH).
+ * The judge, team and event cannot be changed, and neither can the submit
+ * times: those are set only by the Score model when scores are submitted.
+ */
 export async function updateJudgingAssignmentById(
   id: string,
   updates: Partial<
@@ -317,7 +333,8 @@ export async function updateJudgingAssignmentById(
 }
 
 /**
- * Record the time a judge first submitted their scores for a team.
+ * Record the time a judge first submitted their scores for a team, and set
+ * the status to "completed". Called by the Score model, not by an endpoint.
  */
 export async function markInterimSubmitted(
   id: ObjectId,
@@ -330,7 +347,8 @@ export async function markInterimSubmitted(
 }
 
 /**
- * Record the time a judge made the final submit for a team.
+ * Record the time a judge made the final submit for a team. This locks the
+ * scores. Called by the Score model, not by an endpoint.
  */
 export async function markFinalSubmitted(
   id: ObjectId,
@@ -346,6 +364,9 @@ export async function markFinalSubmitted(
 
 //#region Delete functions
 
+/**
+ * Delete one assignment and return it. Scores already saved for it are not removed.
+ */
 export async function deleteJudgingAssignmentById(
   id: string,
 ): Promise<JudgingAssignment> {
@@ -389,6 +410,7 @@ export async function deleteJudgingAssignmentById(
 
 /**
  * Delete all assignments of a judge in an event. Returns how many were deleted.
+ * Used when the judge is removed from the event. Their saved scores are not removed.
  */
 export async function releaseJudgeAssignments(
   eventId: string,

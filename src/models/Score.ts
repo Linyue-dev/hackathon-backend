@@ -13,17 +13,24 @@ export let scoresCollection: Collection<Score>;
 
 const collectionName: string = "scores";
 
+// The score for one criterion of an award.
 export interface CriterionScore {
+  // The id of one item of the award's criteria
   criterionId: string;
+  // Between 0 and the criterion's max. Decimals are allowed
   value: number;
 }
 
+// A free-text comment. The category is a label (usually the criterion's
+// category); it is not checked against the award.
 export interface CriterionComment {
   category: string;
   comment: string;
 }
 
 // One document per judge + team + award.
+// There is no status field: draft / submitted / final is read from the
+// judge's JudgingAssignment (interimSubmittedAt and finalSubmittedAt).
 export interface Score {
   _id?: ObjectId;
   eventId: string;
@@ -32,7 +39,9 @@ export interface Score {
   awardId: string;
   criteriaScores: CriterionScore[];
   comments: CriterionComment[];
+  // Starts at 1 and goes up by 1 each time a submitted score is changed
   version: number;
+  // Older versions, oldest first. The current version is not in this list
   history: ScoreVersion[];
   createdAt: Date;
   updatedAt: Date;
@@ -145,6 +154,8 @@ export async function initialize(
  * replaced as a whole; awards that are not in the list are left untouched.
  * Partial criteria and decimal values are allowed, so it is safe to repeat.
  * Not allowed after the first submit; use updateScores then.
+ * Errors: 409 judging_not_started, 423 judging_closed, 409 final_submitted,
+ * 409 already_submitted.
  */
 export async function saveDraftScores(
   teamId: string,
@@ -173,6 +184,9 @@ export async function saveDraftScores(
  * Submit the scores of one judge for one team (first time).
  * Every award of the team that has scores must have a value for every criterion.
  * Saves the body like a draft, then records the submit time on the assignment.
+ * The submit is per team, not per award: all awards are submitted together.
+ * Errors: 409 judging_not_started, 423 judging_closed, 409 final_submitted,
+ * 409 already_submitted, 422 incomplete_scores.
  */
 export async function submitScores(
   teamId: string,
@@ -202,6 +216,10 @@ export async function submitScores(
 /**
  * Change scores after the first submit. Each award in the body is replaced.
  * If its content changed, the old version goes to history and version goes up.
+ * An award whose content did not change is left as it is (no new version).
+ * Same completeness rule as submit.
+ * Errors: 409 judging_not_started, 423 judging_closed, 409 final_submitted,
+ * 409 not_submitted, 422 incomplete_scores.
  */
 export async function updateScores(
   teamId: string,
@@ -229,7 +247,10 @@ export async function updateScores(
 
 /**
  * Final submit for one judge and team. The scores must have been submitted
- * before. The body is saved like an update, then the scores are locked.
+ * before. The body is saved like an update, then the scores are locked:
+ * after this, every write returns 409 final_submitted.
+ * Errors: 409 judging_not_started, 423 judging_closed, 409 final_submitted,
+ * 409 not_submitted, 422 incomplete_scores.
  */
 export async function finalSubmitScores(
   teamId: string,
@@ -262,6 +283,7 @@ export async function finalSubmitScores(
 
 /**
  * Get the raw scores of one judge for one team, one item per award.
+ * Raw means the values exactly as saved (draft or submitted), without totals.
  * Returns an empty list if the judge has not scored anything yet.
  */
 export async function getRawScores(
@@ -281,6 +303,7 @@ export async function getRawScores(
 /**
  * The scores of one judge in one event, grouped by team.
  * Every team the judge is assigned to is listed, even if it has no scores yet.
+ * Teams are in time slot order. Draft scores are included.
  */
 export async function getScoresByJudge(
   eventId: string,
@@ -327,6 +350,8 @@ export async function getScoresByJudge(
 
 /**
  * The scores of one team from every judge who has scored it.
+ * Judges without any saved score are not listed. Draft scores are included;
+ * interimSubmittedAt tells whether the judge has submitted.
  */
 export async function getScoresByTeam(teamId: string): Promise<JudgeScores[]> {
   if (!scoresCollection)
@@ -435,6 +460,7 @@ export function getCollection(): Collection<Score> {
 
 //#region Helpers
 
+// All saved scores of one judge for one team, one view per award.
 async function readScores(
   teamId: string,
   judgeId: string,
@@ -454,6 +480,7 @@ async function readScores(
 
 /**
  * Scores can only be written while the event's judging is running.
+ * 409 judging_not_started before it starts, 423 judging_closed after it ends.
  */
 async function assertJudgingOpen(eventId: string): Promise<void> {
   const event = await eventModel.getEventById(eventId);
@@ -471,6 +498,11 @@ async function assertJudgingOpen(eventId: string): Promise<void> {
   );
 }
 
+/**
+ * Check every item of the request body and turn it into a DraftItem.
+ * An award must exist, belong to this event, be judged by judges and appear
+ * only once. Nothing is saved here.
+ */
 async function validateItems(
   body: unknown[],
   eventId: string,
@@ -520,6 +552,8 @@ async function validateItems(
   return result;
 }
 
+// Each criterionId must belong to the award and appear once, and each value
+// must be a number from 0 to the criterion's max. Missing criteria are fine.
 function normalizeCriteriaScores(
   value: unknown,
   criteria: awardModel.CriteriaItem[],
@@ -563,6 +597,7 @@ function normalizeCriteriaScores(
   });
 }
 
+// Each comment needs a non-empty category and a text. The category is trimmed.
 function normalizeComments(value: unknown, n: number): CriterionComment[] {
   if (value === undefined) return [];
   if (!Array.isArray(value))
@@ -587,6 +622,8 @@ function normalizeComments(value: unknown, n: number): CriterionComment[] {
     return { category: category.trim(), comment };
   });
 }
+
+// The body of every write is a non-empty list of award scores.
 function assertBodyList(body: unknown): asserts body is unknown[] {
   if (!Array.isArray(body) || body.length === 0)
     throw new InvalidInputError(
@@ -596,6 +633,8 @@ function assertBodyList(body: unknown): asserts body is unknown[] {
 
 /**
  * Check the team, judge, assignment and judging window that every write needs.
+ * The order matters: assignment, then judging open (409 / 423), then the
+ * final lock (409 final_submitted).
  */
 async function loadJudgingContext(teamId: string, judgeId: string) {
   // Each of these throws InvalidInputError if the record does not exist
@@ -622,6 +661,8 @@ async function loadJudgingContext(teamId: string, judgeId: string) {
   return { team, assignment };
 }
 
+// Create or overwrite each award of the list. A new document starts at
+// version 1 with an empty history. The items are already validated.
 async function upsertDraftItems(
   eventId: string,
   teamId: string,
@@ -656,7 +697,9 @@ async function upsertDraftItems(
 }
 
 /**
- * Replace each award in the list. A changed award keeps its old content in history.
+ * Replace each award in the list. A changed award keeps its old content in
+ * history and its version goes up by 1. An unchanged award is skipped, so
+ * sending the same scores again does not create a new version.
  */
 async function replaceWithHistory(
   eventId: string,
@@ -747,6 +790,7 @@ async function assertAllComplete(
   }
 }
 
+// Pick the fields the API returns for one award.
 function toView(d: Score): ScoreView {
   return {
     awardId: d.awardId,

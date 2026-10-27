@@ -15,7 +15,7 @@ router.patch("/awards/:id", updateAward);
 router.delete("/awards/:id", deleteAward);
 
 router.get("/awards/:id/form", getForm);
-router.put("/awards/:id/form", replaceForm);
+router.put("/awards/:id/form", saveForm);
 
 // ============ Handlers ============
 
@@ -163,11 +163,11 @@ async function getForm(req: Request<IdParams>, res: Response) {
  * Returns 200 with { awardId, instructions, criteria }.
  * Errors: 400 invalid input or award not found.
  */
-async function replaceForm(req: Request<IdParams>, res: Response) {
+async function saveForm(req: Request<IdParams>, res: Response) {
   try {
     const { criteria, instructions } = req.body ?? {};
     res.json(
-      await awardModel.replaceFormForAward(req.params.id, {
+      await awardModel.saveFormByAwardId(req.params.id, {
         criteria,
         instructions,
       }),

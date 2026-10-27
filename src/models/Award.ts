@@ -26,14 +26,14 @@ const collectionName: string = "awards";
 export interface Award {
   _id?: ObjectId;
   eventId: string;
-  name: string;
-  type: "top-level" | "mini-challenge";
-  judgedBy: "organizer" | "sponsor" | "judge";
+  name: string; // unique inside the event, not case-sensitive
+  type: "top-level" | "mini-challenge"; // main challenge or side challenge
+  judgedBy: "organizer" | "sponsor" | "judge"; // who gives the score
   sponsoredBy?: string;
-  eligibilityCriteria?: string;
-  requiresVerification: boolean;
-  instructions: string;
-  criteria: CriteriaItem[];
+  eligibilityCriteria?: string; // rules for who can enter, free text
+  requiresVerification: boolean; // if true, a team's entry must be verified before it can place
+  instructions: string; // text shown to the judge on the scoring page
+  criteria: CriteriaItem[]; // the scoring form; changed only with saveFormByAwardId
   createdAt: Date;
   updatedAt: Date;
 }
@@ -62,12 +62,13 @@ const UPDATABLE_FIELDS = [
   "requiresVerification",
 ] as const;
 
+// One scoring item of an award's form
 export interface CriteriaItem {
-  id: string;
+  id: string; // scores refer to this id (criterionId), so it must stay stable
   category: string;
   question: string;
-  weight: number;
-  max: number;
+  weight: number; // relative importance of this item
+  max: number; // highest score a judge can give
 }
 
 // What GET /awards/:id/form returns
@@ -117,6 +118,10 @@ export async function initialize(
 
 /**
  * Add a new award (challenge) to an event.
+ * Everything is checked first (fields, criteria, event, name), then the award
+ * is saved in one step. judgingCriteria is optional; items without an id get one.
+ * Throws InvalidInputError for bad input, an unknown event, or a name that is
+ * already used in the event.
  */
 export async function addAward(input: NewAwardInput): Promise<Award> {
   if (!awardsCollection)
@@ -193,6 +198,10 @@ export async function addAward(input: NewAwardInput): Promise<Award> {
 
 //#region Get functions
 
+/**
+ * Get one award by id. Other models also use it to check that an award exists.
+ * Throws InvalidInputError if the id is malformed or no award has it.
+ */
 export async function getAwardById(id: string): Promise<WithId<Award>> {
   if (!awardsCollection)
     throw new DatabaseError("Database Collection object not initialized");
@@ -264,6 +273,10 @@ export async function getAllAwards(
 //#region Form functions
 // The judging form is stored inside the award (one form per award).
 
+/**
+ * Get the judging form of an award. An award without criteria returns an
+ * empty list and empty instructions.
+ */
 export async function getFormByAwardId(awardId: string): Promise<AwardForm> {
   // Throws InvalidInputError if the award does not exist
   const award = await getAwardById(awardId);
@@ -275,9 +288,14 @@ export async function getFormByAwardId(awardId: string): Promise<AwardForm> {
 }
 
 /**
- * Replace the criteria list and instructions of an award's form.
+ * Save the judging form of an award (used by PUT /awards/:id/form).
+ * The first save creates the form; later saves replace it as a whole, so send
+ * the full criteria list every time.
+ * An item keeps its id if the client sends it, so scores that point to it
+ * stay valid. Missing instructions become "".
+ * Everything is checked before anything is saved.
  */
-export async function replaceFormForAward(
+export async function saveFormByAwardId(
   awardId: string,
   input: { criteria: unknown; instructions?: unknown },
 ): Promise<AwardForm> {
@@ -317,6 +335,11 @@ export async function replaceFormForAward(
 
 //#region Update functions
 
+/**
+ * Change some fields of an award. Only the fields in UPDATABLE_FIELDS are
+ * accepted; others (eventId, criteria, instructions) are refused.
+ * The award is replaced as a whole with the merged result.
+ */
 export async function updateAwardById(
   id: string,
   updates: Partial<Omit<Award, "_id" | "eventId" | "createdAt" | "updatedAt">>,
@@ -400,6 +423,10 @@ export async function updateAwardById(
 
 //#region Delete functions
 
+/**
+ * Delete an award and return it.
+ * Note: it does not check yet for scores that point to the award.
+ */
 export async function deleteAwardById(id: string): Promise<Award> {
   if (!awardsCollection)
     throw new DatabaseError("Database Collection object not initialized");

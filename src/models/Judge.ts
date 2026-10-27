@@ -23,15 +23,21 @@ export let judgesCollection: Collection<Judge>;
 
 const collectionName: string = "judges";
 
+// A judge in the shared directory. Judges are not tied to an event here;
+// the link to an event is an EventJudge.
 export interface Judge {
   _id?: ObjectId;
   firstName: string;
   lastName: string;
+  // Stored in lower case and unique across all judges
   email: string;
   phone?: string;
   affiliation?: string;
+  // Defaults to false
   isScience: boolean;
+  // Defaults to "beginner"
   proficiency: "beginner" | "intermediate" | "advanced";
+  // Years the judge took part before, e.g. [2023, 2024]. Defaults to []
   yearsParticipated: number[];
   notes?: string;
   createdAt: Date;
@@ -99,6 +105,10 @@ export async function initialize(
 
 //#region Add functions
 
+/**
+ * Add a new judge. The email is trimmed, lower-cased and must not be used by
+ * another judge. Missing isScience, proficiency and yearsParticipated get defaults.
+ */
 export async function addJudge(input: NewJudgeInput): Promise<Judge> {
   if (!judgesCollection)
     throw new DatabaseError("Database Collection object not initialized");
@@ -243,6 +253,11 @@ export async function getAllJudges(
 
 //#region Update functions
 
+/**
+ * Change some fields of a judge (partial update, like PATCH).
+ * Only the fields in UPDATABLE_FIELDS are allowed; any other field is rejected.
+ * A new email must be valid and not used by another judge.
+ */
 export async function updateJudgeById(
   id: string,
   updates: Partial<Omit<Judge, "_id" | "createdAt" | "updatedAt">>,
@@ -328,6 +343,11 @@ export async function updateJudgeById(
 
 //#region Delete functions
 
+/**
+ * Delete a judge and return it.
+ * Only the judge is deleted: its EventJudge links, assignments and scores are
+ * not checked or removed.
+ */
 export async function deleteJudgeById(id: string): Promise<Judge> {
   if (!judgesCollection)
     throw new DatabaseError("Database Collection object not initialized");

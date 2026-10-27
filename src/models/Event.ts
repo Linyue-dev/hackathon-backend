@@ -35,8 +35,10 @@ export interface Event {
   theme?: string;
   description?: string;
   address?: Address;
-  rooms: string[];
+  rooms: string[]; // names of the rooms used at the event
   arrivalNotes?: string;
+  // See "Status flow" below. The judging statuses are set only by startJudging
+  // and endJudging.
   status:
     | "draft"
     | "in-progress"
@@ -145,7 +147,11 @@ export async function initialize(
 //#region Add functions
 
 /**
- * Add a new event to the database.
+ * Add a new event to the database. status defaults to "draft".
+ * Dates are checked (the end must not be before the start), and address and
+ * rooms are validated.
+ * Note: unlike updateEventById, this does not refuse the judging statuses yet,
+ * so create events as "draft" or "in-progress".
  */
 export async function addEvent(input: NewEventInput): Promise<Event> {
   if (!eventsCollection)
@@ -215,7 +221,8 @@ export async function addEvent(input: NewEventInput): Promise<Event> {
 //#region Get functions
 
 /**
- * Get an event by its id.
+ * Get an event by its id. Other models also use it to check that an event exists.
+ * Throws InvalidInputError if the id is malformed or no event has it.
  */
 export async function getEventById(id: string): Promise<WithId<Event>> {
   if (!eventsCollection)
@@ -285,6 +292,11 @@ export async function getAllEvents(
 
 /**
  * Update the properties of an event. Only provided fields are changed.
+ * status can only be set to "draft" or "in-progress" here; the judging
+ * statuses change only through startJudging and endJudging.
+ * address and rooms are replaced as a whole. The end date is checked against
+ * the start date after the changes are merged, so changing only one of them is
+ * also checked.
  */
 export async function updateEventById(
   id: string,
@@ -416,7 +428,9 @@ export async function endJudging(id: string): Promise<WithId<Event>> {
 //#region Delete functions
 
 /**
- * Delete an event from the database.
+ * Delete an event from the database and return it.
+ * Note: it does not check yet for teams, awards or scores that belong to the
+ * event; the delete rules are still to be decided.
  */
 export async function deleteEventById(id: string): Promise<Event> {
   if (!eventsCollection)
@@ -478,7 +492,9 @@ export function getCollection(): Collection<Event> {
   }
   return eventsCollection;
 }
+
 //#region Helpers
+
 function isValidStatus(value: unknown): value is Event["status"] {
   return EVENT_STATUSES.some((s) => s === value);
 }
@@ -537,7 +553,12 @@ async function saveEventChanges(
 
 /**
  * Turn the list filter into a MongoDB query.
- * draft/upcoming/active/past are not stored; they are worked out from status and dates.
+ * draft/upcoming/active/past are not stored; they are worked out from status and dates:
+ *  - draft: status is draft
+ *  - upcoming: not a draft, and the start is in the future
+ *  - active: not a draft, and now is between the start and the end
+ *  - past: not a draft, and the end is in the past or the event is complete
+ * An event without dates never appears in upcoming, active or past.
  */
 function buildEventQuery(filter: EventFilter): Filter<Event> {
   const query: Filter<Event> = {};

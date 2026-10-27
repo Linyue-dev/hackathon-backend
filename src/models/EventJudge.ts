@@ -21,6 +21,7 @@ export let eventJudgesCollection: Collection<EventJudge>;
 
 const collectionName: string = "eventJudges";
 
+// A team this judge must not judge, for example because of a personal link.
 export interface Conflict {
   teamId: string;
   reason?: string;
@@ -31,9 +32,9 @@ export interface EventJudge {
   _id?: ObjectId;
   eventId: string;
   judgeId: string;
-  type: "technical" | "beginner" | "design";
-  awardIds: string[];
-  conflicts: Conflict[];
+  type: "technical" | "beginner" | "design"; // the kind of judge in this event
+  awardIds: string[]; // the awards of this event the judge will score
+  conflicts: Conflict[]; // teams the judge must not be assigned to
   notes?: string;
   createdAt: Date;
 }
@@ -90,7 +91,10 @@ export async function initialize(
 
 /**
  * Add existing judges to an event. Judges already in the event are skipped
- * and reported in alreadyAdded.
+ * and reported in alreadyAdded; their data is not changed.
+ * type applies to every judge that is added in this call (default "technical").
+ * Everything is checked before anything is saved.
+ * Note: conflict warnings are not returned yet.
  */
 export async function addJudgesToEvent(
   eventId: string,
@@ -155,6 +159,8 @@ export async function addJudgesToEvent(
 
 /**
  * Get the judges of one event, with optional type / conflicts filters and paging.
+ * hasConflicts true keeps judges with at least one conflict; false keeps judges
+ * with none. Returns the page of event judges and the total number of matches.
  */
 export async function getAllEventJudges(
   eventId: string,
@@ -194,7 +200,8 @@ export async function getAllEventJudges(
 }
 
 /**
- * Get one judge of an event.
+ * Get one judge of an event. Also used to check that the judge is in the event.
+ * Throws InvalidInputError if the judge is not in the event.
  */
 export async function getEventJudge(
   eventId: string,
@@ -224,6 +231,9 @@ const UPDATABLE_FIELDS = ["type", "awardIds", "notes"] as const;
 
 /**
  * Edit the type, awards or notes of a judge in an event.
+ * awardIds is replaced as a whole: every award must exist and belong to this
+ * event, and duplicates are removed. The conflicts have their own function,
+ * setConflicts.
  */
 export async function updateEventJudge(
   eventId: string,
@@ -274,7 +284,9 @@ export async function updateEventJudge(
 
 /**
  * Replace the conflict teams of a judge. An empty list clears the conflicts.
- * The same reason is stored for every team.
+ * The same reason is stored for every team. Every team must exist and belong
+ * to this event.
+ * Note: assignments that already exist for these teams are not checked or removed.
  */
 export async function setConflicts(
   eventId: string,
@@ -329,7 +341,10 @@ export async function setConflicts(
 //#region Delete functions
 
 /**
- * Remove a judge from an event.
+ * Remove a judge from an event. Only this link is deleted: the judge stays in
+ * the judge directory. The judge's assignments are released by the controller
+ * (see removeJudge in eventJudgeController).
+ * Throws InvalidInputError if the judge is not in the event.
  */
 export async function removeJudgeFromEvent(
   eventId: string,
