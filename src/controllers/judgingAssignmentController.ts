@@ -10,9 +10,9 @@ export const routeRoot = "/api/v1";
 // ============ Routes ============
 router.post("/events/:id/assignments", createJudgingAssignment);
 router.get("/events/:id/assignments", getJudgingAssignments);
-router.get("/assignments/:id", getJudgingAssignmentById);
 router.patch("/assignments/:id", updateJudgingAssignment);
 router.delete("/assignments/:id", deleteJudgingAssignment);
+router.post("/assignments/start/:judgeId/:teamId", startAssignment);
 
 // ============ Handlers ============
 
@@ -45,14 +45,40 @@ async function createJudgingAssignment(req: Request<IdParams>, res: Response) {
   }
 }
 
+type StartParams = { judgeId: string; teamId: string };
+
+/**
+ * POST /assignments/start/:judgeId/:teamId
+ * A judge starts judging a team. No body.
+ * Records judgingStartTime and sets the status to "in-progress".
+ * Calling it again changes nothing (the first start time is kept).
+ * Returns 200 with the assignment.
+ * Errors:
+ *   400 invalid_input - the judge or team does not exist, or the judge is not
+ *                       assigned to the team
+ *   409 judging_not_started - judging has not started for this event
+ *   423 judging_closed - judging has ended for this event
+ */
+async function startAssignment(req: Request<StartParams>, res: Response) {
+  try {
+    const assignment = await judgingAssignmentModel.startAssignment(
+      req.params.judgeId,
+      req.params.teamId,
+    );
+    res.json(assignment);
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
 /**
  * GET /events/:id/assignments?judgeId=&teamId=&status=&page=&limit=
  * List the assignments of an event, newest first. :id is the event id.
  * judgeId: only this judge ("my teams"). teamId: only this team.
  * status: "pending", "in-progress" or "completed".
- * Each item: { judgeId, teamId, eventId, status, slotAt, interimSubmittedAt,
- * finalSubmittedAt, createdAt, updatedAt }. The two submitted times are empty
- * until the judge submits.
+ * Each item: { judgeId, teamId, eventId, status, slotAt, judgingStartTime,
+ * interimSubmittedAt, finalSubmittedAt, createdAt, updatedAt }. The start and
+ * submitted times are empty until the judge starts or submits.
  * Returns 200 with a plain array. The total number of matches is in the
  * X-Total-Count response header.
  * Errors: 400 invalid status.
@@ -72,22 +98,6 @@ async function getJudgingAssignments(req: Request<IdParams>, res: Response) {
       );
     res.set("X-Total-Count", String(total));
     res.json(assignments);
-  } catch (err) {
-    handleError(err, res);
-  }
-}
-
-/**
- * GET /assignments/:id
- * One assignment.
- * Errors: 400 if the assignment does not exist.
- */
-async function getJudgingAssignmentById(req: Request<IdParams>, res: Response) {
-  try {
-    const assignment = await judgingAssignmentModel.getJudgingAssignmentById(
-      req.params.id,
-    );
-    res.json(assignment);
   } catch (err) {
     handleError(err, res);
   }

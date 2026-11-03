@@ -16,6 +16,7 @@ import {
   toDate,
 } from "../utils/validateUtils.js";
 import { DEFAULT_LIMIT, Pagination } from "../utils/pagination.js";
+import { AppError } from "../errors/AppError.js";
 
 let client: MongoClient;
 export let eventsCollection: Collection<Event>;
@@ -422,6 +423,26 @@ export async function endJudging(id: string): Promise<WithId<Event>> {
     status: "judging-ended",
     judgingEndedAt: new Date(),
   });
+}
+
+/**
+ * Judge work (scores, starting a team) is allowed only while judging is open.
+ * 409 judging_not_started before it starts, 423 judging_closed after it ends.
+ */
+export async function assertJudgingOpen(eventId: string): Promise<void> {
+  const event = await getEventById(eventId);
+  if (event.status === "judging-started") return;
+  if (event.status === "judging-ended" || event.status === "complete")
+    throw new AppError(
+      423,
+      "judging_closed",
+      "Judging has ended for this event",
+    );
+  throw new AppError(
+    409,
+    "judging_not_started",
+    "Judging has not started for this event",
+  );
 }
 //#endregion
 

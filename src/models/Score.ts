@@ -479,26 +479,6 @@ async function readScores(
 }
 
 /**
- * Scores can only be written while the event's judging is running.
- * 409 judging_not_started before it starts, 423 judging_closed after it ends.
- */
-async function assertJudgingOpen(eventId: string): Promise<void> {
-  const event = await eventModel.getEventById(eventId);
-  if (event.status === "judging-started") return;
-  if (event.status === "judging-ended" || event.status === "complete")
-    throw new AppError(
-      423,
-      "judging_closed",
-      "Judging has ended for this event",
-    );
-  throw new AppError(
-    409,
-    "judging_not_started",
-    "Judging has not started for this event",
-  );
-}
-
-/**
  * Check every item of the request body and turn it into a DraftItem.
  * An award must exist, belong to this event, be judged by judges and appear
  * only once. Nothing is saved here.
@@ -649,7 +629,7 @@ async function loadJudgingContext(teamId: string, judgeId: string) {
   if (!assignment)
     throw new InvalidInputError("This judge is not assigned to this team");
 
-  await assertJudgingOpen(team.eventId);
+  await eventModel.assertJudgingOpen(team.eventId);
 
   if (assignment.finalSubmittedAt)
     throw new AppError(

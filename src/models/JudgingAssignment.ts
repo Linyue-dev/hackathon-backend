@@ -42,6 +42,8 @@ export interface JudgingAssignment {
   interimSubmittedAt?: Date;
   // Set at the final submit. Scores are locked after that
   finalSubmittedAt?: Date;
+  // Set when the judge starts judging this team
+  judgingStartTime?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -371,6 +373,40 @@ export async function markFinalSubmitted(
     { _id: id },
     { $set: { finalSubmittedAt: at, updatedAt: at } },
   );
+}
+/**
+ * A judge starts judging a team: records judgingStartTime and sets the status
+ * to "in-progress". Calling it again changes nothing, and nothing changes if
+ * the judge already submitted.
+ */
+export async function startAssignment(
+  judgeId: string,
+  teamId: string,
+): Promise<WithId<JudgingAssignment>> {
+  // Each of these throws InvalidInputError if the record does not exist
+  const team = await teamModel.getTeamById(teamId);
+  await judgeModel.getJudgeById(judgeId);
+
+  const assignment = await findAssignment(team.eventId, judgeId, teamId);
+  if (!assignment)
+    throw new InvalidInputError("This judge is not assigned to this team");
+
+  await eventModel.assertJudgingOpen(team.eventId);
+
+  if (assignment.judgingStartTime || assignment.interimSubmittedAt)
+    return assignment;
+
+  const now = new Date();
+  await getCollection().updateOne(
+    { _id: assignment._id },
+    { $set: { judgingStartTime: now, status: "in-progress", updatedAt: now } },
+  );
+  return {
+    ...assignment,
+    judgingStartTime: now,
+    status: "in-progress",
+    updatedAt: now,
+  };
 }
 
 //#endregion
