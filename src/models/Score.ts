@@ -52,6 +52,9 @@ export interface ScoreView {
   awardId: string;
   criteriaScores: CriterionScore[];
   comments: CriterionComment[];
+  // Sum of the criterion values, and sum of the max of every criterion of the award
+  total: number;
+  maxTotal: number;
   version: number;
   updatedAt: Date;
 }
@@ -61,8 +64,10 @@ export interface TeamScores {
   teamId: string;
   teamName: string;
   tableNumber?: number;
+  room?: string;
   status: string;
   slotAt?: Date;
+  judgingStartTime?: Date;
   interimSubmittedAt?: Date;
   finalSubmittedAt?: Date;
   awards: ScoreView[];
@@ -90,13 +95,6 @@ interface DraftItem {
   comments: CriterionComment[];
 }
 
-// An older version of a score, kept when the judge changes it after submitting
-export interface ScoreVersion {
-  version: number;
-  criteriaScores: CriterionScore[];
-  comments: CriterionComment[];
-  savedAt: Date;
-}
 // An older version of a score, kept when the judge changes it after submitting
 export interface ScoreVersion {
   version: number;
@@ -325,6 +323,7 @@ export async function getScoresByJudge(
       .find({ eventId, judgeId })
       .sort({ createdAt: 1, _id: 1 })
       .toArray();
+    const maxTotals = await loadMaxTotals(scores);
     const teams = await teamModel
       .getCollection()
       .find({ _id: { $in: assignments.map((a) => new ObjectId(a.teamId)) } })
@@ -335,11 +334,15 @@ export async function getScoresByJudge(
       teamId: a.teamId,
       teamName: teamById.get(a.teamId)?.name ?? "",
       tableNumber: teamById.get(a.teamId)?.tableNumber,
+      room: teamById.get(a.teamId)?.room,
       status: a.status,
       slotAt: a.slotAt,
+      judgingStartTime: a.judgingStartTime,
       interimSubmittedAt: a.interimSubmittedAt,
       finalSubmittedAt: a.finalSubmittedAt,
-      awards: scores.filter((s) => s.teamId === a.teamId).map(toView),
+      awards: scores
+        .filter((s) => s.teamId === a.teamId)
+        .map((s) => toView(s, maxTotals)),
     }));
   } catch (err) {
     throw new DatabaseError(
@@ -372,6 +375,7 @@ export async function getScoresByTeam(teamId: string): Promise<JudgeScores[]> {
     );
   }
 
+  const maxTotals = await loadMaxTotals(docs);
   const byJudge = new Map<string, Score[]>();
   for (const doc of docs) {
     const list = byJudge.get(doc.judgeId) ?? [];
@@ -392,7 +396,7 @@ export async function getScoresByTeam(teamId: string): Promise<JudgeScores[]> {
       judgeName: `${judge.firstName} ${judge.lastName}`,
       interimSubmittedAt: assignment?.interimSubmittedAt,
       finalSubmittedAt: assignment?.finalSubmittedAt,
-      awards: judgeDocs.map(toView),
+      awards: judgeDocs.map((d) => toView(d, maxTotals)),
     });
   }
   return result;
@@ -470,7 +474,8 @@ async function readScores(
       .find({ teamId, judgeId })
       .sort({ createdAt: 1, _id: 1 })
       .toArray();
-    return docs.map(toView);
+    const maxTotals = await loadMaxTotals(docs);
+    return docs.map((d) => toView(d, maxTotals));
   } catch (err) {
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve scores",
@@ -770,12 +775,35 @@ async function assertAllComplete(
   }
 }
 
+function sumOf(values: number[]): number {
+  // Round, so decimal scores like 8.25 do not leave floating point noise
+  return Math.round(values.reduce((a, b) => a + b, 0) * 100) / 100;
+}
+
+// The best possible total of each award in these scores, by award id
+async function loadMaxTotals(docs: Score[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  for (const awardId of new Set(docs.map((d) => d.awardId))) {
+    try {
+      const award = await awardModel.getAwardById(awardId);
+      result.set(awardId, sumOf(award.criteria.map((c) => c.max)));
+    } catch (err) {
+      // An award that was deleted since has no known maximum
+      if (!(err instanceof InvalidInputError)) throw err;
+      result.set(awardId, 0);
+    }
+  }
+  return result;
+}
+
 // Pick the fields the API returns for one award.
-function toView(d: Score): ScoreView {
+function toView(d: Score, maxTotals: Map<string, number>): ScoreView {
   return {
     awardId: d.awardId,
     criteriaScores: d.criteriaScores,
     comments: d.comments,
+    total: sumOf(d.criteriaScores.map((s) => s.value)),
+    maxTotal: maxTotals.get(d.awardId) ?? 0,
     version: d.version,
     updatedAt: d.updatedAt,
   };

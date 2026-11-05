@@ -374,6 +374,7 @@ export async function markFinalSubmitted(
     { $set: { finalSubmittedAt: at, updatedAt: at } },
   );
 }
+
 /**
  * A judge starts judging a team: records judgingStartTime and sets the status
  * to "in-progress". Calling it again changes nothing, and nothing changes if
@@ -526,5 +527,41 @@ export async function findAssignmentsOfJudge(
     .find({ eventId, judgeId })
     .sort({ slotAt: 1, createdAt: 1 })
     .toArray();
+}
+
+/**
+ * What a judge sees when opening an event: who they are, the event, the
+ * judging window and how far they are. The judge must be in the event.
+ */
+export async function getJudgeSession(eventId: string, judgeId: string) {
+  // Each of these throws InvalidInputError if the record does not exist
+  const event = await eventModel.getEventById(eventId);
+  const judge = await judgeModel.getJudgeById(judgeId);
+  await eventJudgeModel.getEventJudge(eventId, judgeId);
+
+  const assignments = await findAssignmentsOfJudge(eventId, judgeId);
+  return {
+    judge: {
+      id: judge._id,
+      firstName: judge.firstName,
+      lastName: judge.lastName,
+      email: judge.email,
+      affiliation: judge.affiliation,
+    },
+    event: {
+      id: event._id,
+      name: event.name,
+      theme: event.theme,
+      status: event.status,
+      judgingStartedAt: event.judgingStartedAt,
+      judgingEndedAt: event.judgingEndedAt,
+    },
+    progress: {
+      teams: assignments.length,
+      started: assignments.filter((a) => a.judgingStartTime).length,
+      submitted: assignments.filter((a) => a.interimSubmittedAt).length,
+      final: assignments.filter((a) => a.finalSubmittedAt).length,
+    },
+  };
 }
 //#endregion

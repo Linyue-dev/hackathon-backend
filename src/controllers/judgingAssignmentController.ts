@@ -3,6 +3,8 @@ import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
 import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
 import { parsePagination } from "../utils/pagination.js";
+import * as scoreModel from "../models/Score.js";
+import { InvalidInputError } from "../errors/InvalidInputError.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -13,6 +15,8 @@ router.get("/events/:id/assignments", getJudgingAssignments);
 router.patch("/assignments/:id", updateJudgingAssignment);
 router.delete("/assignments/:id", deleteJudgingAssignment);
 router.post("/assignments/start/:judgeId/:teamId", startAssignment);
+router.get("/assignments/one/:judgeId", getJudgeTeams);
+router.get("/assignments/:judgeId", getJudgeSession);
 
 // ============ Handlers ============
 
@@ -46,6 +50,59 @@ async function createJudgingAssignment(req: Request<IdParams>, res: Response) {
 }
 
 type StartParams = { judgeId: string; teamId: string };
+
+type JudgeParams = { judgeId: string };
+
+// Until login can tell us the event, it is sent as ?eventId=
+function requireEventId(value: unknown): string {
+  if (typeof value !== "string" || !value)
+    throw new InvalidInputError(
+      "Invalid input: the eventId query parameter is required",
+    );
+  return value;
+}
+
+/**
+ * GET /assignments/one/:judgeId?eventId=
+ * "My teams": the teams of one judge in one event, in time slot order.
+ * Each item: { teamId, teamName, tableNumber, room, status, slotAt,
+ * judgingStartTime, interimSubmittedAt, finalSubmittedAt, awards }.
+ * awards has one item per award with scores: { awardId, criteriaScores,
+ * comments, total, maxTotal, version, updatedAt }. total is the sum of the
+ * criterion values and maxTotal the sum of the criteria's max values.
+ * A team without scores yet has an empty awards list.
+ * Returns 200 with a plain array.
+ * Errors: 400 invalid_input - eventId missing, or the event or judge does not exist.
+ */
+async function getJudgeTeams(req: Request<JudgeParams>, res: Response) {
+  try {
+    const eventId = requireEventId(req.query.eventId);
+    res.json(await scoreModel.getScoresByJudge(eventId, req.params.judgeId));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * GET /assignments/:judgeId?eventId=
+ * The first judge screen: the judge, the event and the judging progress.
+ * Returns 200 with { judge: { id, firstName, lastName, email, affiliation },
+ * event: { id, name, theme, status, judgingStartedAt, judgingEndedAt },
+ * progress: { teams, started, submitted, final } }.
+ * progress counts the judge's teams: assigned, started, submitted and finally submitted.
+ * Errors: 400 invalid_input - eventId missing, the event or judge does not
+ * exist, or the judge is not in the event.
+ */
+async function getJudgeSession(req: Request<JudgeParams>, res: Response) {
+  try {
+    const eventId = requireEventId(req.query.eventId);
+    res.json(
+      await judgingAssignmentModel.getJudgeSession(eventId, req.params.judgeId),
+    );
+  } catch (err) {
+    handleError(err, res);
+  }
+}
 
 /**
  * POST /assignments/start/:judgeId/:teamId
