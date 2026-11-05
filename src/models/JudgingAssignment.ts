@@ -633,4 +633,128 @@ export async function getAssignmentMatrix(eventId: string) {
     ),
   };
 }
+
+/**
+ * Save the whole matrix of an event. The list replaces the current
+ * assignments: pairs that are not in the list are removed, new pairs are
+ * created, and pairs that already exist only get the new slot.
+ * Everything is checked before anything is saved.
+ */
+export async function saveAssignmentMatrix(eventId: string, body: unknown) {
+  // Throws InvalidInputError if the event does not exist
+  await eventModel.getEventById(eventId);
+
+  const list = (body as { assignments?: unknown } | null | undefined)
+    ?.assignments;
+  if (!Array.isArray(list))
+    throw new InvalidInputError(
+      "Invalid input: body must be { assignments: [{ teamId, judgeId, slot }] }",
+    );
+
+  // The pairs we want, by judge and team
+  const wanted = new Map<
+    string,
+    { judgeId: string; teamId: string; slotAt?: Date }
+  >();
+  for (let i = 0; i < list.length; i++) {
+    const n = i + 1;
+    const raw = list[i];
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+      throw new InvalidInputError(
+        `Invalid input: assignment ${n} must be an object`,
+      );
+    const { teamId, judgeId, slot } = raw as Record<string, unknown>;
+    assertIdString(teamId, `assignment ${n} teamId`);
+    assertIdString(judgeId, `assignment ${n} judgeId`);
+    const key = `${judgeId}:${teamId}`;
+    if (wanted.has(key))
+      throw new InvalidInputError(
+        `Invalid input: assignment ${n} is a duplicate of an earlier one`,
+      );
+    wanted.set(key, {
+      judgeId: judgeId as string,
+      teamId: teamId as string,
+      slotAt: toDate(slot),
+    });
+  }
+
+  const eventJudges = await eventJudgeModel
+    .getCollection()
+    .find({ eventId })
+    .toArray();
+  const eventJudgeById = new Map(eventJudges.map((e) => [e.judgeId, e]));
+  const teams = await teamModel.getCollection().find({ eventId }).toArray();
+  const teamById = new Map(teams.map((t) => [t._id.toString(), t]));
+
+  for (const item of wanted.values()) {
+    const eventJudge = eventJudgeById.get(item.judgeId);
+    if (!eventJudge)
+      throw new InvalidInputError(
+        `Invalid input: judge ${item.judgeId} is not in this event`,
+      );
+    const team = teamById.get(item.teamId);
+    if (!team)
+      throw new InvalidInputError(
+        `Invalid input: team ${item.teamId} does not belong to this event`,
+      );
+    if (team.status !== "active")
+      throw new InvalidInputError(
+        `Invalid input: team ${item.teamId} is '${team.status}', not active`,
+      );
+    if (eventJudge.conflicts.some((c) => c.teamId === item.teamId))
+      throw new AppError(
+        409,
+        "conflict_of_interest",
+        `Judge ${item.judgeId} has a conflict with team ${item.teamId}`,
+      );
+  }
+
+  const existing = await getCollection().find({ eventId }).toArray();
+  const removed = existing.filter(
+    (a) => !wanted.has(`${a.judgeId}:${a.teamId}`),
+  );
+  if (removed.some((a) => a.interimSubmittedAt))
+    throw new AppError(
+      409,
+      "already_submitted",
+      "An assignment whose scores were submitted cannot be removed",
+    );
+  const existingByKey = new Map(
+    existing.map((a) => [`${a.judgeId}:${a.teamId}`, a]),
+  );
+
+  const now = new Date();
+  try {
+    if (removed.length > 0)
+      await getCollection().deleteMany({
+        _id: { $in: removed.map((a) => a._id) },
+      });
+    for (const [key, item] of wanted) {
+      const old = existingByKey.get(key);
+      if (old) {
+        await getCollection().updateOne(
+          { _id: old._id },
+          { $set: { slotAt: item.slotAt, updatedAt: now } },
+        );
+      } else {
+        await getCollection().insertOne({
+          eventId,
+          judgeId: item.judgeId,
+          teamId: item.teamId,
+          status: "pending",
+          slotAt: item.slotAt,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  } catch (err: unknown) {
+    throw new DatabaseError(
+      "Database error: unable to save the assignments" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+
+  return getAssignmentMatrix(eventId);
+}
 //#endregion

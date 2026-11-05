@@ -16,6 +16,7 @@ router.post("/assignments/start/:judgeId/:teamId", startAssignment);
 router.get("/assignments/one/:judgeId", getJudgeTeams);
 router.get("/assignments/:judgeId", getJudgeSession);
 router.get("/events/:id/assignments", getAssignmentMatrix);
+router.put("/events/:id/assignments", saveAssignmentMatrix);
 
 // ============ Handlers ============
 
@@ -142,6 +143,34 @@ async function startAssignment(req: Request<StartParams>, res: Response) {
 async function getAssignmentMatrix(req: Request<IdParams>, res: Response) {
   try {
     res.json(await judgingAssignmentModel.getAssignmentMatrix(req.params.id));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * PUT /events/:id/assignments
+ * Save the whole matrix of an event. :id is the event id.
+ * Body: { assignments: [{ teamId, judgeId, slot }] }. slot is optional (a date and time).
+ * The list replaces the current assignments: pairs that are not in the list are
+ * removed, new pairs are created, and pairs that already exist only get the new
+ * slot. An empty list removes every assignment.
+ * Everything is checked before anything is saved.
+ * Returns 200 with the new matrix, in the same format as GET.
+ * Errors:
+ *   400 invalid_input - bad body, a judge that is not in the event, a team that is
+ *                       not in the event or not active, or a pair that appears twice
+ *   409 conflict_of_interest - a team is in the judge's conflict list
+ *   409 already_submitted - the list would remove an assignment whose scores were submitted
+ */
+async function saveAssignmentMatrix(req: Request<IdParams>, res: Response) {
+  try {
+    res.json(
+      await judgingAssignmentModel.saveAssignmentMatrix(
+        req.params.id,
+        req.body,
+      ),
+    );
   } catch (err) {
     handleError(err, res);
   }
