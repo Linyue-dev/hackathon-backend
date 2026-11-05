@@ -564,4 +564,73 @@ export async function getJudgeSession(eventId: string, judgeId: string) {
     },
   };
 }
+
+/**
+ * The assignment matrix of an event: its teams, its judges and who is
+ * assigned to whom. Teams and judges are always in the same order.
+ */
+export async function getAssignmentMatrix(eventId: string) {
+  // Throws InvalidInputError if the event does not exist
+  await eventModel.getEventById(eventId);
+
+  const [teams, eventJudges, assignments] = await Promise.all([
+    teamModel
+      .getCollection()
+      .find({ eventId })
+      .sort({ tableNumber: 1, name: 1, _id: 1 })
+      .toArray(),
+    eventJudgeModel.getCollection().find({ eventId }).toArray(),
+    getCollection().find({ eventId }).toArray(),
+  ]);
+
+  const judges = await judgeModel
+    .getCollection()
+    .find({ _id: { $in: eventJudges.map((e) => new ObjectId(e.judgeId)) } })
+    .toArray();
+  judges.sort(
+    (a, b) =>
+      a.lastName.localeCompare(b.lastName) ||
+      a.firstName.localeCompare(b.firstName) ||
+      a._id.toString().localeCompare(b._id.toString()),
+  );
+  const eventJudgeById = new Map(eventJudges.map((e) => [e.judgeId, e]));
+
+  return {
+    teams: teams.map((t) => ({
+      id: t._id,
+      name: t.name,
+      tableNumber: t.tableNumber,
+      room: t.room,
+      status: t.status,
+    })),
+    judges: judges.map((j) => {
+      const id = j._id.toString();
+      const eventJudge = eventJudgeById.get(id);
+      return {
+        id: j._id,
+        firstName: j.firstName,
+        lastName: j.lastName,
+        type: eventJudge?.type,
+        awardIds: eventJudge?.awardIds ?? [],
+        // How many teams this judge is assigned to
+        workload: assignments.filter((a) => a.judgeId === id).length,
+      };
+    }),
+    assignments: assignments.map((a) => ({
+      id: a._id,
+      teamId: a.teamId,
+      judgeId: a.judgeId,
+      slotAt: a.slotAt,
+      status: a.status,
+    })),
+    // Teams each judge must not be assigned to
+    conflicts: eventJudges.flatMap((e) =>
+      e.conflicts.map((c) => ({
+        judgeId: e.judgeId,
+        teamId: c.teamId,
+        reason: c.reason,
+      })),
+    ),
+  };
+}
 //#endregion

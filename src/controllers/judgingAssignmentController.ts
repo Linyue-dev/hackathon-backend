@@ -2,7 +2,6 @@ import express, { Request, Response } from "express";
 import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
 import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
-import { parsePagination } from "../utils/pagination.js";
 import * as scoreModel from "../models/Score.js";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 
@@ -11,12 +10,12 @@ export const routeRoot = "/api/v1";
 
 // ============ Routes ============
 router.post("/events/:id/assignments", createJudgingAssignment);
-router.get("/events/:id/assignments", getJudgingAssignments);
 router.patch("/assignments/:id", updateJudgingAssignment);
 router.delete("/assignments/:id", deleteJudgingAssignment);
 router.post("/assignments/start/:judgeId/:teamId", startAssignment);
 router.get("/assignments/one/:judgeId", getJudgeTeams);
 router.get("/assignments/:judgeId", getJudgeSession);
+router.get("/events/:id/assignments", getAssignmentMatrix);
 
 // ============ Handlers ============
 
@@ -129,32 +128,20 @@ async function startAssignment(req: Request<StartParams>, res: Response) {
 }
 
 /**
- * GET /events/:id/assignments?judgeId=&teamId=&status=&page=&limit=
- * List the assignments of an event, newest first. :id is the event id.
- * judgeId: only this judge ("my teams"). teamId: only this team.
- * status: "pending", "in-progress" or "completed".
- * Each item: { judgeId, teamId, eventId, status, slotAt, judgingStartTime,
- * interimSubmittedAt, finalSubmittedAt, createdAt, updatedAt }. The start and
- * submitted times are empty until the judge starts or submits.
- * Returns 200 with a plain array. The total number of matches is in the
- * X-Total-Count response header.
- * Errors: 400 invalid status.
+ * GET /events/:id/assignments
+ * The assignment matrix of an event. :id is the event id.
+ * Returns 200 with { teams, judges, assignments, conflicts }.
+ * teams: { id, name, tableNumber, room, status }, ordered by table number.
+ * judges: { id, firstName, lastName, type, awardIds, workload }, ordered by
+ * name. workload is the number of teams the judge is assigned to.
+ * assignments: one item per judge and team: { id, teamId, judgeId, slotAt, status }.
+ * conflicts: { judgeId, teamId, reason }, the teams a judge must not be assigned to.
+ * The teams and judges are always in the same order.
+ * Errors: 400 invalid_input - the event does not exist.
  */
-async function getJudgingAssignments(req: Request<IdParams>, res: Response) {
+async function getAssignmentMatrix(req: Request<IdParams>, res: Response) {
   try {
-    const { judgeId, teamId, status, page, limit } = req.query;
-    const { assignments, total } =
-      await judgingAssignmentModel.getAllJudgingAssignments(
-        {
-          eventId: req.params.id,
-          judgeId: typeof judgeId === "string" ? judgeId : undefined,
-          teamId: typeof teamId === "string" ? teamId : undefined,
-          status: typeof status === "string" ? status : undefined,
-        },
-        parsePagination(page, limit),
-      );
-    res.set("X-Total-Count", String(total));
-    res.json(assignments);
+    res.json(await judgingAssignmentModel.getAssignmentMatrix(req.params.id));
   } catch (err) {
     handleError(err, res);
   }
