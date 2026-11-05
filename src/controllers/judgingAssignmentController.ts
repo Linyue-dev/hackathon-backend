@@ -12,6 +12,7 @@ export const routeRoot = "/api/v1";
 router.patch("/assignments/:id", updateJudgingAssignment);
 router.delete("/assignments/:id", deleteJudgingAssignment);
 router.post("/assignments/start/:judgeId/:teamId", startAssignment);
+router.post("/assignments/end/:judgeId/:teamId", endAssignment);
 router.get("/assignments/one/:judgeId", getJudgeTeams);
 router.get("/assignments/:judgeId", getJudgeSession);
 router.get("/events/:id/assignments", getAssignmentMatrix);
@@ -146,6 +147,29 @@ async function getJudgeSession(req: Request<JudgeParams>, res: Response) {
 async function startAssignment(req: Request<StartParams>, res: Response) {
   try {
     const assignment = await judgingAssignmentModel.startAssignment(
+      req.params.judgeId,
+      req.params.teamId,
+    );
+    res.json(assignment);
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * POST /assignments/end/:judgeId/:teamId
+ * A judge ends judging a team. No body. Records judgingEndTime.
+ * Calling it again changes nothing (the first end time is kept).
+ * Returns 200 with the assignment.
+ * Errors:
+ *   400 invalid_input - the judge or team does not exist, or the judge is not
+ *                       assigned to the team
+ *   409 judging_not_started - judging has not started for this event
+ *   423 judging_closed - judging has ended for this event
+ */
+async function endAssignment(req: Request<StartParams>, res: Response) {
+  try {
+    const assignment = await judgingAssignmentModel.endAssignment(
       req.params.judgeId,
       req.params.teamId,
     );

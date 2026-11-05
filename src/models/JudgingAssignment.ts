@@ -44,6 +44,8 @@ export interface JudgingAssignment {
   finalSubmittedAt?: Date;
   // Set when the judge starts judging this team
   judgingStartTime?: Date;
+  // Set when the judge ends judging this team
+  judgingEndTime?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -408,6 +410,40 @@ export async function startAssignment(
     status: "in-progress",
     updatedAt: now,
   };
+}
+
+/**
+ * A judge ends judging a team: records judgingEndTime. Calling it again
+ * changes nothing (the first end time is kept).
+ */
+export async function endAssignment(
+  judgeId: string,
+  teamId: string,
+): Promise<WithId<JudgingAssignment>> {
+  // Each of these throws InvalidInputError if the record does not exist
+  const team = await teamModel.getTeamById(teamId);
+  await judgeModel.getJudgeById(judgeId);
+
+  const assignment = await findAssignment(team.eventId, judgeId, teamId);
+  if (!assignment)
+    throw new InvalidInputError("This judge is not assigned to this team");
+
+  await eventModel.assertJudgingOpen(team.eventId);
+
+  if (assignment.judgingEndTime) return assignment;
+  if (!assignment.judgingStartTime)
+    throw new AppError(
+      409,
+      "not_started",
+      "Judging this team has not been started yet",
+    );
+
+  const now = new Date();
+  await getCollection().updateOne(
+    { _id: assignment._id },
+    { $set: { judgingEndTime: now, updatedAt: now } },
+  );
+  return { ...assignment, judgingEndTime: now, updatedAt: now };
 }
 
 //#endregion
