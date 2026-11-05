@@ -9,7 +9,6 @@ const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/events/:id/assignments", createJudgingAssignment);
 router.patch("/assignments/:id", updateJudgingAssignment);
 router.delete("/assignments/:id", deleteJudgingAssignment);
 router.post("/assignments/start/:judgeId/:teamId", startAssignment);
@@ -17,33 +16,61 @@ router.get("/assignments/one/:judgeId", getJudgeTeams);
 router.get("/assignments/:judgeId", getJudgeSession);
 router.get("/events/:id/assignments", getAssignmentMatrix);
 router.put("/events/:id/assignments", saveAssignmentMatrix);
+router.post("/events/:id/assignments/one/:judgeId/:teamId", assignOne);
+router.delete("/events/:id/assignments/one/:judgeId/:teamId", removeOne);
 
 // ============ Handlers ============
 
+type OneParams = { id: string; judgeId: string; teamId: string };
+
 /**
- * POST /events/:id/assignments
+ * POST /events/:id/assignments/one/:judgeId/:teamId
  * Assign one judge to one team. :id is the event id.
- * Body: judgeId and teamId (required), slotAt (optional, a date and time).
+ * Body (optional): { slot } a date and time.
  * The judge must be in the event, the team must belong to the event and have
  * status "active", and the team must not be one of the judge's conflicts.
- * A judge can be assigned to the same team only once.
- * Returns 201 with the assignment. Its status starts as "pending".
+ * If the judge is already assigned to the team, only the slot changes.
+ * If the judge already has another team in the same slot, that assignment is replaced.
+ * Returns 201 with the assignment when it was created, 200 when it already existed.
+ * A new assignment starts with status "pending".
  * Errors:
- *   400 invalid_input - the judge is not in the event, the team is not in the event
- *                       or is not active, or the judge is already assigned to the team
+ *   400 invalid_input - the judge is not in the event, or the team is not in the
+ *                       event or is not active
  *   409 conflict_of_interest - the team is in the judge's conflict list
+ *   409 already_submitted - the assignment to replace has submitted scores
  */
-async function createJudgingAssignment(req: Request<IdParams>, res: Response) {
+async function assignOne(req: Request<OneParams>, res: Response) {
   try {
-    // The event id comes from the path, not from the body
-    const { judgeId, teamId, slotAt } = req.body ?? {};
-    const assignment = await judgingAssignmentModel.addJudgingAssignment({
-      eventId: req.params.id,
+    const { id, judgeId, teamId } = req.params;
+    const { assignment, created } = await judgingAssignmentModel.assignOne(
+      id,
       judgeId,
       teamId,
-      slotAt,
-    });
-    res.status(201).json(assignment);
+      req.body?.slot,
+    );
+    res.status(created ? 201 : 200).json(assignment);
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * DELETE /events/:id/assignments/one/:judgeId/:teamId
+ * Remove one judge from one team. :id is the event id.
+ * Returns 200 with { message, assignment }.
+ * Errors:
+ *   400 invalid_input - the judge is not assigned to the team
+ *   409 already_submitted - the judge already submitted scores for the team
+ */
+async function removeOne(req: Request<OneParams>, res: Response) {
+  try {
+    const { id, judgeId, teamId } = req.params;
+    const assignment = await judgingAssignmentModel.removeOne(
+      id,
+      judgeId,
+      teamId,
+    );
+    res.json({ message: "Judging assignment removed", assignment });
   } catch (err) {
     handleError(err, res);
   }

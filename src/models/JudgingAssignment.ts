@@ -757,4 +757,84 @@ export async function saveAssignmentMatrix(eventId: string, body: unknown) {
 
   return getAssignmentMatrix(eventId);
 }
+
+/**
+ * Assign one judge to one team, optionally in a time slot.
+ * If the judge is already assigned to the team, only the slot changes.
+ * If the judge already has another team in the same slot, that assignment is
+ * replaced (refused when its scores were submitted).
+ * The same rules as for the whole matrix apply (see addJudgingAssignment).
+ */
+export async function assignOne(
+  eventId: string,
+  judgeId: string,
+  teamId: string,
+  slot: unknown,
+): Promise<{ assignment: JudgingAssignment; created: boolean }> {
+  const slotAt = toDate(slot);
+
+  // Another team of this judge in the same slot, which this call replaces
+  const occupant = slotAt
+    ? await getCollection().findOne({
+        eventId,
+        judgeId,
+        slotAt,
+        teamId: { $ne: teamId },
+      })
+    : null;
+  if (occupant?.interimSubmittedAt)
+    throw new AppError(
+      409,
+      "already_submitted",
+      "An assignment whose scores were submitted cannot be replaced",
+    );
+
+  const old = await findAssignment(eventId, judgeId, teamId);
+  let assignment: JudgingAssignment;
+  if (old) {
+    const now = new Date();
+    await getCollection().updateOne(
+      { _id: old._id },
+      { $set: { slotAt, updatedAt: now } },
+    );
+    assignment = { ...old, slotAt, updatedAt: now };
+  } else {
+    // Checks the event, judge, team, membership and conflicts
+    assignment = await addJudgingAssignment({
+      eventId,
+      judgeId,
+      teamId,
+      slotAt,
+    });
+  }
+
+  if (occupant) await getCollection().deleteOne({ _id: occupant._id });
+  return { assignment, created: !old };
+}
+
+/**
+ * Remove one judge from one team. Refused when the judge already submitted
+ * scores for the team.
+ */
+export async function removeOne(
+  eventId: string,
+  judgeId: string,
+  teamId: string,
+): Promise<JudgingAssignment> {
+  // Throws InvalidInputError if the event does not exist
+  await eventModel.getEventById(eventId);
+
+  const assignment = await findAssignment(eventId, judgeId, teamId);
+  if (!assignment)
+    throw new InvalidInputError("This judge is not assigned to this team");
+  if (assignment.interimSubmittedAt)
+    throw new AppError(
+      409,
+      "already_submitted",
+      "An assignment whose scores were submitted cannot be removed",
+    );
+
+  await getCollection().deleteOne({ _id: assignment._id });
+  return assignment;
+}
 //#endregion
