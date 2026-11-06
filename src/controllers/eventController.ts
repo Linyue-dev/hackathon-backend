@@ -4,6 +4,7 @@ import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
 import { parsePagination } from "../utils/pagination.js";
 import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
+import * as resultModel from "../models/Result.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -17,6 +18,8 @@ router.delete("/events/:id", deleteEvent);
 
 router.post("/events/:id/judging/start", startJudging);
 router.post("/events/:id/judging/end", endJudging);
+
+router.get("/events/:id/summary", getEventSummary);
 // ============ Handlers ============
 
 /**
@@ -175,6 +178,24 @@ async function startJudging(req: Request<IdParams>, res: Response) {
 async function endJudging(req: Request<IdParams>, res: Response) {
   try {
     res.json(await eventModel.endJudging(req.params.id));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * GET /events/:id/summary
+ * Dashboard numbers of the event, counted over its active teams. :id is the event id.
+ * Returns 200 with { teams, graded, gradingNow, notStarted, avgScore }.
+ * graded: teams with judges where every judge has submitted.
+ * gradingNow: other teams where at least one judge has started or submitted.
+ * notStarted: all the rest, including teams without judges.
+ * avgScore: average total of the submitted scores; null when none are submitted.
+ * Errors: 400 invalid_input - the event does not exist.
+ */
+async function getEventSummary(req: Request<IdParams>, res: Response) {
+  try {
+    res.json(await resultModel.getEventSummary(req.params.id));
   } catch (err) {
     handleError(err, res);
   }

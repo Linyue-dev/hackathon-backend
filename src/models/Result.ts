@@ -185,6 +185,63 @@ export async function exportResultsCsv(eventId: string): Promise<string> {
   return rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
 
+/**
+ * Dashboard numbers of one event, counted over its active teams.
+ * graded: teams with judges where every judge has submitted.
+ * gradingNow: other teams where at least one judge has started or submitted.
+ * notStarted: all the rest (including teams without judges).
+ * avgScore: the average total of the submitted scores, null when there are none.
+ */
+export async function getEventSummary(eventId: string) {
+  await eventModel.getEventById(eventId);
+
+  const teams = await teamModel
+    .getCollection()
+    .find({ eventId, status: "active" })
+    .toArray();
+  const assignments = await judgingAssignmentModel
+    .getCollection()
+    .find({ eventId })
+    .toArray();
+
+  let graded = 0;
+  let gradingNow = 0;
+  let notStarted = 0;
+  for (const team of teams) {
+    const mine = assignments.filter((a) => a.teamId === team._id.toString());
+    if (mine.length > 0 && mine.every((a) => a.interimSubmittedAt)) graded++;
+    else if (mine.some((a) => a.judgingStartTime || a.interimSubmittedAt))
+      gradingNow++;
+    else notStarted++;
+  }
+
+  // Only scores the judge has submitted, for active teams
+  const activeIds = new Set(teams.map((t) => t._id.toString()));
+  const submittedKeys = new Set(
+    assignments
+      .filter((a) => a.interimSubmittedAt)
+      .map((a) => `${a.judgeId}|${a.teamId}`),
+  );
+  const scores = await scoreModel.getCollection().find({ eventId }).toArray();
+  const totals = scores
+    .filter(
+      (s) =>
+        activeIds.has(s.teamId) &&
+        submittedKeys.has(`${s.judgeId}|${s.teamId}`),
+    )
+    .map((s) => s.criteriaScores.reduce((sum, c) => sum + c.value, 0));
+
+  return {
+    teams: teams.length,
+    graded,
+    gradingNow,
+    notStarted,
+    avgScore: totals.length
+      ? round2(totals.reduce((a, b) => a + b, 0) / totals.length)
+      : null,
+  };
+}
+
 // Quote a value for CSV. Text that starts with = + - @ gets a leading ' so a
 // spreadsheet does not run it as a formula
 function csvCell(value: unknown): string {
