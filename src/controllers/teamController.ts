@@ -1,8 +1,9 @@
 import express, { Request, Response } from "express";
-import * as teamModel from "../models/Team.js";
-import { handleError } from "../utils/errorHandler.js";
-import type { IdParams } from "../utils/types.js";
-import { parsePagination } from "../utils/pagination.js";
+import * as teamModel from "./../models/Team.js";
+import { handleError } from "./../utils/errorHandler.js";
+import type { IdParams } from "./../utils/types.js";
+import { parsePagination } from "./../utils/pagination.js";
+import * as scoreModel from "./../models/Score.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -73,18 +74,24 @@ async function getTeams(req: Request<IdParams>, res: Response) {
 
 /**
  * GET /teams/:id
- * One team.
+ * The team page: the team's own fields, plus the scores so far.
+ * Returns 200 with the team and a list "judges":
+ * [{ judgeId, judgeName, interimSubmittedAt, finalSubmittedAt,
+ *    awards: [{ awardId, criteriaScores, comments, total, maxTotal, version, updatedAt }] }].
+ * Only judges who have saved a score for this team are listed; drafts are
+ * included, and interimSubmittedAt tells whether the judge has submitted.
+ * Note: challenges and criteria need TeamEntry and are not returned yet.
  * Errors: 400 if the team does not exist.
  */
 async function getTeamById(req: Request<IdParams>, res: Response) {
   try {
     const team = await teamModel.getTeamById(req.params.id);
-    res.json(team);
+    const judges = await scoreModel.getScoresByTeam(req.params.id);
+    res.json({ ...team, judges });
   } catch (err) {
     handleError(err, res);
   }
 }
-
 /**
  * PATCH /teams/:id
  * Change some fields of a team. Send only the fields to change.
