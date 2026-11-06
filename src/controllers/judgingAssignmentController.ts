@@ -254,6 +254,7 @@ async function updateJudgingAssignment(req: Request<IdParams>, res: Response) {
  * Remove an assignment. Returns 200 with { message, assignment }.
  * Note: it is not refused yet when the judge already has scores for the team.
  * Errors: 400 if the assignment does not exist.
+ * 409 already_submitted - the judge has already submitted scores for this team.
  */
 async function deleteJudgingAssignment(req: Request<IdParams>, res: Response) {
   try {

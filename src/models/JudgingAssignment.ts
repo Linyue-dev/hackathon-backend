@@ -451,7 +451,9 @@ export async function endAssignment(
 //#region Delete functions
 
 /**
- * Delete one assignment and return it. Scores already saved for it are not removed.
+ * Delete one assignment and return it.
+ * Refused with 409 already_submitted when the judge has submitted scores for
+ * this team. Draft scores saved for it are not removed.
  */
 export async function deleteJudgingAssignmentById(
   id: string,
@@ -473,14 +475,24 @@ export async function deleteJudgingAssignmentById(
       await judgingAssignmentsCollection.findOne<JudgingAssignment>({
         _id: objectId,
       });
+
     if (!toDelete)
       throw new InvalidInputError(
         `The judging assignment you were trying to delete doesn't exist (id ${id})`,
       );
 
+    // Submitted scores belong to this assignment, so it cannot be deleted
+    if (toDelete.interimSubmittedAt)
+      throw new AppError(
+        409,
+        "already_submitted",
+        "This judge has already submitted scores for this team, so the assignment cannot be removed",
+      );
+
     const result = await judgingAssignmentsCollection.deleteOne({
       _id: objectId,
     });
+
     if (!result.acknowledged)
       throw new InvalidInputError(`unable to delete judging assignment ${id}`);
 
@@ -488,6 +500,7 @@ export async function deleteJudgingAssignmentById(
   } catch (err) {
     if (err instanceof DatabaseError) throw err;
     else if (err instanceof InvalidInputError) throw err;
+    else if (err instanceof AppError) throw err;
     else if (err instanceof Error)
       throw new Error(`Unexpected error: ${err.message}`);
     else throw new Error(`Unknown error: ${err}`);
