@@ -873,4 +873,104 @@ export async function removeOne(
   await getCollection().deleteOne({ _id: assignment._id });
   return assignment;
 }
+
+/**
+ * Suggest who judges which team: 2 to 3 judges per team, never a judge's
+ * conflict team, and no judge above teamsPerJudge teams. The work is spread
+ * evenly. The suggestion is saved only when the event has no assignments yet.
+ */
+export async function suggestAssignments(eventId: string, body: unknown) {
+  // Throws InvalidInputError if the event does not exist
+  await eventModel.getEventById(eventId);
+
+  const teamsPerJudge = (body as { teamsPerJudge?: unknown } | null | undefined)
+    ?.teamsPerJudge;
+  if (
+    teamsPerJudge !== undefined &&
+    (typeof teamsPerJudge !== "number" ||
+      !Number.isInteger(teamsPerJudge) ||
+      teamsPerJudge < 1)
+  )
+    throw new InvalidInputError(
+      "Invalid input: teamsPerJudge must be a positive whole number",
+    );
+
+  const teams = await teamModel
+    .getCollection()
+    .find({ eventId, status: "active" })
+    .sort({ tableNumber: 1, name: 1, _id: 1 })
+    .toArray();
+  const eventJudges = await eventJudgeModel
+    .getCollection()
+    .find({ eventId })
+    .sort({ judgeId: 1 })
+    .toArray();
+
+  // Most teams one judge may get. Without a limit, 3 judges per team evenly
+  const cap =
+    teamsPerJudge ??
+    (eventJudges.length > 0
+      ? Math.ceil((teams.length * 3) / eventJudges.length)
+      : 0);
+
+  const load = new Map(eventJudges.map((e) => [e.judgeId, 0]));
+  const picked = new Map<string, string[]>(
+    teams.map((t) => [t._id.toString(), []]),
+  );
+
+  // One judge per team in each round, so the work stays balanced
+  for (let round = 0; round < 3; round++) {
+    for (const team of teams) {
+      const teamId = team._id.toString();
+      const chosen = picked.get(teamId) ?? [];
+      const next = eventJudges
+        .filter(
+          (e) =>
+            !chosen.includes(e.judgeId) &&
+            (load.get(e.judgeId) ?? 0) < cap &&
+            !e.conflicts.some((c) => c.teamId === teamId),
+        )
+        .sort(
+          (a, b) => (load.get(a.judgeId) ?? 0) - (load.get(b.judgeId) ?? 0),
+        )[0];
+      if (!next) continue;
+      chosen.push(next.judgeId);
+      load.set(next.judgeId, (load.get(next.judgeId) ?? 0) + 1);
+    }
+  }
+
+  const assignments = [...picked].flatMap(([teamId, judgeIds]) =>
+    judgeIds.map((judgeId) => ({ teamId, judgeId })),
+  );
+  // Teams that could not get at least 2 judges
+  const uncovered = [...picked]
+    .filter(([, judgeIds]) => judgeIds.length < 2)
+    .map(([teamId]) => teamId);
+
+  // Only an event without assignments is changed
+  const empty = (await getCollection().countDocuments({ eventId })) === 0;
+  const saved = empty && assignments.length > 0;
+  if (saved) {
+    const now = new Date();
+    try {
+      await getCollection().insertMany(
+        assignments.map((a) => ({
+          eventId,
+          judgeId: a.judgeId,
+          teamId: a.teamId,
+          status: "pending" as const,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    } catch (err: unknown) {
+      throw new DatabaseError(
+        "Database error: unable to save the assignments" +
+          (err instanceof Error ? "; " + err.message : ""),
+      );
+    }
+  }
+
+  return { saved, assignments, uncovered };
+}
 //#endregion

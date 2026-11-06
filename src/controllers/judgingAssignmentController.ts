@@ -19,6 +19,7 @@ router.get("/events/:id/assignments", getAssignmentMatrix);
 router.put("/events/:id/assignments", saveAssignmentMatrix);
 router.post("/events/:id/assignments/one/:judgeId/:teamId", assignOne);
 router.delete("/events/:id/assignments/one/:judgeId/:teamId", removeOne);
+router.post("/events/:id/assignments/auto", suggestAssignments);
 
 // ============ Handlers ============
 
@@ -260,6 +261,28 @@ async function deleteJudgingAssignment(req: Request<IdParams>, res: Response) {
       req.params.id,
     );
     res.json({ message: "Judging assignment deleted", assignment });
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * POST /events/:id/assignments/auto
+ * Suggest who judges which team. :id is the event id.
+ * Body (optional): { teamsPerJudge } the most teams one judge may get.
+ * Each active team gets 2 to 3 judges, never a judge who has a conflict with
+ * the team, and the work is spread evenly.
+ * The suggestion is saved only when the event has no assignments yet.
+ * Returns 200 with { saved, assignments, uncovered }.
+ * saved: true when the assignments were created. assignments: [{ teamId, judgeId }].
+ * uncovered: the ids of the teams that could not get at least 2 judges.
+ * Errors: 400 invalid_input - the event does not exist or teamsPerJudge is not a positive whole number.
+ */
+async function suggestAssignments(req: Request<IdParams>, res: Response) {
+  try {
+    res.json(
+      await judgingAssignmentModel.suggestAssignments(req.params.id, req.body),
+    );
   } catch (err) {
     handleError(err, res);
   }
