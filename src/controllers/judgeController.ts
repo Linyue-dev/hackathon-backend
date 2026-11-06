@@ -3,6 +3,7 @@ import * as judgeModel from "../models/Judge.js";
 import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
 import { parsePagination } from "../utils/pagination.js";
+import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -62,6 +63,8 @@ async function createJudge(req: Request, res: Response) {
  * search matches first name, last name, email or affiliation (partial, not
  * case-sensitive).
  * Returns 200 with a plain array. The total number of matches is in the
+ * Each judge also has pastEvents: the events the judge was added to, newest
+ * first, each { id, name, theme, description, startDatetime }.
  * X-Total-Count response header.
  */
 async function getJudges(req: Request, res: Response) {
@@ -71,8 +74,16 @@ async function getJudges(req: Request, res: Response) {
       typeof search === "string" ? search : undefined,
       parsePagination(page, limit),
     );
+    const pastEvents = await judgingAssignmentModel.getPastEventsOfJudges(
+      judges.map((j) => j._id.toString()),
+    );
     res.set("X-Total-Count", String(total));
-    res.json(judges);
+    res.json(
+      judges.map((j) => ({
+        ...j,
+        pastEvents: pastEvents.get(j._id.toString()),
+      })),
+    );
   } catch (err) {
     handleError(err, res);
   }

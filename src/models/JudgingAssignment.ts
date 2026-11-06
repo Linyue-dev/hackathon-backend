@@ -696,6 +696,53 @@ export async function getJudgesProgress(
 }
 
 /**
+ * The events each judge has been added to, by judge id, newest event first.
+ * A judge who was never added to an event gets an empty list.
+ */
+export async function getPastEventsOfJudges(judgeIds: string[]): Promise<
+  Map<
+    string,
+    {
+      id: string;
+      name: string;
+      theme?: string;
+      description?: string;
+      startDatetime?: Date;
+    }[]
+  >
+> {
+  const links = await eventJudgeModel
+    .getCollection()
+    .find({ judgeId: { $in: judgeIds } })
+    .toArray();
+  const eventIds = [...new Set(links.map((l) => l.eventId))];
+  const events = await eventModel
+    .getCollection()
+    .find({ _id: { $in: eventIds.map((id) => new ObjectId(id)) } })
+    .sort({ createdAt: -1, _id: 1 })
+    .toArray();
+
+  return new Map(
+    judgeIds.map((judgeId) => [
+      judgeId,
+      events
+        .filter((e) =>
+          links.some(
+            (l) => l.judgeId === judgeId && l.eventId === e._id.toString(),
+          ),
+        )
+        .map((e) => ({
+          id: e._id.toString(),
+          name: e.name,
+          theme: e.theme,
+          description: e.description,
+          startDatetime: e.startDatetime,
+        })),
+    ]),
+  );
+}
+
+/**
  * The assignment matrix of an event: its teams, its judges and who is
  * assigned to whom. Teams and judges are always in the same order.
  */
