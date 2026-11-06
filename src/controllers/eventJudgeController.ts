@@ -51,7 +51,9 @@ async function assignJudges(req: Request<IdParams>, res: Response) {
  * The judges of an event. :id is the event id.
  * type: "technical", "beginner" or "design".
  * hasConflicts: "true" or "false".
- * Each item: { eventId, judgeId, type, awardIds, conflicts, notes, createdAt }.
+ * Each item: { eventId, judgeId, type, awardIds, conflicts, notes, createdAt, progress }.
+ * progress: { teams, started, submitted, final } counts of the judge's
+ * assignments in this event: all, started, submitted and finally submitted.
  * Returns 200 with a plain array. The total number of matches is in the
  * X-Total-Count response header.
  * Errors: 400 invalid filter value.
@@ -76,8 +78,14 @@ async function getEventJudges(req: Request<IdParams>, res: Response) {
       },
       parsePagination(page, limit),
     );
+    const progress = await judgingAssignmentModel.getJudgesProgress(
+      req.params.id,
+      eventJudges.map((j) => j.judgeId),
+    );
     res.set("X-Total-Count", String(total));
-    res.json(eventJudges);
+    res.json(
+      eventJudges.map((j) => ({ ...j, progress: progress.get(j.judgeId) })),
+    );
   } catch (err) {
     handleError(err, res);
   }

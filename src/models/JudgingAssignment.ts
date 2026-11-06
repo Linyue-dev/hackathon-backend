@@ -662,6 +662,40 @@ export async function getEventStats(
 }
 
 /**
+ * Progress of several judges in one event, by judge id: how many teams each
+ * judge has, and how many of them are started, submitted and finally submitted.
+ * A judge without assignments has all zeros.
+ */
+export async function getJudgesProgress(
+  eventId: string,
+  judgeIds: string[],
+): Promise<
+  Map<
+    string,
+    { teams: number; started: number; submitted: number; final: number }
+  >
+> {
+  const result = new Map(
+    judgeIds.map((id) => [
+      id,
+      { teams: 0, started: 0, submitted: 0, final: 0 },
+    ]),
+  );
+  const docs = await getCollection()
+    .find({ eventId, judgeId: { $in: judgeIds } })
+    .toArray();
+  for (const a of docs) {
+    const p = result.get(a.judgeId);
+    if (!p) continue;
+    p.teams++;
+    if (a.judgingStartTime) p.started++;
+    if (a.interimSubmittedAt) p.submitted++;
+    if (a.finalSubmittedAt) p.final++;
+  }
+  return result;
+}
+
+/**
  * The assignment matrix of an event: its teams, its judges and who is
  * assigned to whom. Teams and judges are always in the same order.
  */
