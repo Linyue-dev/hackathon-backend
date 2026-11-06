@@ -8,6 +8,7 @@ import * as userModel from "./models/User.js";
 import * as awardModel from "./models/Award.js";
 import * as eventJudgeModel from "./models/EventJudge.js";
 import * as scoreModel from "./models/Score.js";
+import * as resultModel from "./models/Result.js";
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
