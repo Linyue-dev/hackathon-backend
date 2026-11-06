@@ -52,7 +52,7 @@ export interface Event {
   judgingEndedAt?: Date;
   resultsPublishedAt?: Date;
   logoUrl?: string;
-  location?: string;
+  venue?: string;
   startDatetime?: Date;
   endDatetime?: Date;
   createdAt: Date;
@@ -68,7 +68,7 @@ export interface NewEventInput {
   rooms?: string[];
   arrivalNotes?: string;
   logoUrl?: string;
-  location?: string;
+  venue?: string;
   startDatetime?: Date | string;
   endDatetime?: Date | string;
 }
@@ -101,7 +101,7 @@ const UPDATABLE_FIELDS = [
   "arrivalNotes",
   "status",
   "logoUrl",
-  "location",
+  "venue",
   "startDatetime",
   "endDatetime",
 ] as const;
@@ -167,7 +167,7 @@ export async function addEvent(input: NewEventInput): Promise<Event> {
     rooms,
     arrivalNotes,
     logoUrl,
-    location,
+    venue,
     startDatetime,
     endDatetime,
   } = input;
@@ -196,7 +196,7 @@ export async function addEvent(input: NewEventInput): Promise<Event> {
     arrivalNotes,
     status,
     logoUrl,
-    location,
+    venue,
     startDatetime: start,
     endDatetime: end,
     createdAt: now,

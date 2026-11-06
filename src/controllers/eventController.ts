@@ -23,7 +23,7 @@ router.post("/events/:id/judging/end", endJudging);
  * Create an event.
  * Body: name (required). Optional: status, theme, description,
  * address { street, city, province, postal }, rooms (list of strings),
- * arrivalNotes, logoUrl, location, startDatetime, endDatetime.
+ * arrivalNotes, logoUrl, venue, startDatetime, endDatetime.
  * Status values: draft, in-progress, judging-started, judging-ended, complete.
  * judgingStartedAt, judgingEndedAt and resultsPublishedAt are set by the
  * server and cannot be sent.
@@ -41,7 +41,7 @@ async function createEvent(req: Request, res: Response) {
       rooms,
       arrivalNotes,
       logoUrl,
-      location,
+      venue,
       startDatetime,
       endDatetime,
     } = req.body ?? {};
@@ -54,7 +54,7 @@ async function createEvent(req: Request, res: Response) {
       rooms,
       arrivalNotes,
       logoUrl,
-      location,
+      venue,
       startDatetime,
       endDatetime,
     });
@@ -109,7 +109,7 @@ async function getEventById(req: Request<IdParams>, res: Response) {
  * PATCH /events/:id
  * Change some fields of an event. Send only the fields to change.
  * Allowed: name, theme, description, address, rooms, arrivalNotes, status,
- * logoUrl, location, startDatetime, endDatetime.
+ * logoUrl, venue, startDatetime, endDatetime.
  * status can only be set to "draft" or "in-progress" here. The judging
  * statuses are set by POST /events/:id/judging/start and /end.
  * Returns 200 with the updated event.
