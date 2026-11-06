@@ -617,6 +617,51 @@ export async function getJudgeSession(eventId: string, judgeId: string) {
 }
 
 /**
+ * Counts for a list of events: how many teams and judges each has, and the
+ * judging progress as a whole percent (assignments with submitted scores out
+ * of all assignments; 0 when the event has no assignments).
+ */
+export async function getEventStats(
+  eventIds: string[],
+): Promise<
+  Map<string, { teamCount: number; judgeCount: number; progress: number }>
+> {
+  type Row = { _id: string; n: number };
+
+  // Count the documents of each event: the same pipeline for every collection
+  const pipeline = (extra: object = {}) => [
+    { $match: { eventId: { $in: eventIds }, ...extra } },
+    { $group: { _id: "$eventId", n: { $sum: 1 } } },
+  ];
+  const toMap = (rows: Row[]) => new Map(rows.map((r) => [r._id, r.n]));
+
+  const [teams, judges, assignments, submitted] = await Promise.all([
+    teamModel.getCollection().aggregate<Row>(pipeline()).toArray(),
+    eventJudgeModel.getCollection().aggregate<Row>(pipeline()).toArray(),
+    getCollection().aggregate<Row>(pipeline()).toArray(),
+    getCollection()
+      .aggregate<Row>(pipeline({ interimSubmittedAt: { $type: "date" } }))
+      .toArray(),
+  ]).then((all) => all.map(toMap));
+
+  return new Map(
+    eventIds.map((id) => {
+      const total = assignments.get(id) ?? 0;
+      return [
+        id,
+        {
+          teamCount: teams.get(id) ?? 0,
+          judgeCount: judges.get(id) ?? 0,
+          progress: total
+            ? Math.round(((submitted.get(id) ?? 0) / total) * 100)
+            : 0,
+        },
+      ];
+    }),
+  );
+}
+
+/**
  * The assignment matrix of an event: its teams, its judges and who is
  * assigned to whom. Teams and judges are always in the same order.
  */

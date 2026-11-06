@@ -3,6 +3,7 @@ import * as eventModel from "../models/Event.js";
 import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
 import { parsePagination } from "../utils/pagination.js";
+import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -70,8 +71,9 @@ async function createEvent(req: Request, res: Response) {
  * status: one event status (for example "judging-started") or one of the
  * dashboard groups "draft", "upcoming", "active", "past".
  * search matches the name (partial, not case-sensitive).
- * Returns 200 with a plain array. The total number of matches is in the
- * X-Total-Count response header.
+ * Returns 200 with a plain array. Each event also has teamCount (teams of the
+ * event), judgeCount (judges added to the event) and progress (whole percent
+ * of the judges' assignments that have submitted scores; 0 without assignments).
  */
 async function getEvents(req: Request, res: Response) {
   try {
@@ -83,9 +85,11 @@ async function getEvents(req: Request, res: Response) {
       },
       parsePagination(page, limit),
     );
-    // The body stays a plain array; the total count goes in a header
+    const stats = await judgingAssignmentModel.getEventStats(
+      events.map((e) => e._id.toString()),
+    );
     res.set("X-Total-Count", String(total));
-    res.json(events);
+    res.json(events.map((e) => ({ ...e, ...stats.get(e._id.toString()) })));
   } catch (err) {
     handleError(err, res);
   }
