@@ -8,7 +8,7 @@ const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/users", createUser);
+router.post("/users/add", createUser);
 router.get("/users", getUsers);
 router.get("/users/:id", getUserById);
 router.patch("/users/:id", updateUser);
@@ -22,7 +22,7 @@ router.delete("/users/:id", deleteUser);
 // now, and the role rules will change when authentication is added.
 
 /**
- * POST /users
+ * POST /users/add
  * Create an account for a member of the organizing team.
  * Body: firstName, lastName, email, password (required), phone (optional).
  * A "role" in the body is ignored. The email must be valid and unique.
