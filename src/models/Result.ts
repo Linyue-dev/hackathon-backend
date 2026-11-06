@@ -4,6 +4,7 @@ import * as awardModel from "./Award.js";
 import * as teamModel from "./Team.js";
 import * as scoreModel from "./Score.js";
 import * as judgingAssignmentModel from "./JudgingAssignment.js";
+import * as sponsorChoiceModel from "./SponsorChoice.js";
 
 export interface RankedTeam {
   rank: number;
@@ -127,4 +128,67 @@ export async function getPreliminaryResults(
       teams: ranked,
     };
   });
+}
+
+/**
+ * Export the scores and the final placings as CSV text: one row per team and
+ * challenge, with the average total of the submitted scores and the admin's
+ * final rank and note. A team that has a placing but no submitted scores is
+ * still listed, with an empty total.
+ */
+export async function exportResultsCsv(eventId: string): Promise<string> {
+  const preliminary = await getPreliminaryResults(eventId);
+  const final = await sponsorChoiceModel.getFinalResults(eventId);
+
+  const rows: unknown[][] = [
+    [
+      "Challenge",
+      "Team",
+      "Table",
+      "Final rank",
+      "Note",
+      "Average total",
+      "Max total",
+    ],
+  ];
+  for (const award of preliminary) {
+    const placed = new Map(
+      (
+        final.awards.find((a) => a.awardId === award.awardId)?.placements ?? []
+      ).map((p) => [p.teamId, p]),
+    );
+    for (const t of award.teams) {
+      const p = placed.get(t.teamId);
+      rows.push([
+        award.awardName,
+        t.teamName,
+        t.tableNumber ?? "",
+        p?.rank ?? "",
+        p?.note ?? "",
+        t.total,
+        award.maxTotal,
+      ]);
+      placed.delete(t.teamId);
+    }
+    // Placed teams without any submitted score
+    for (const p of placed.values())
+      rows.push([
+        award.awardName,
+        p.teamName,
+        "",
+        p.rank,
+        p.note ?? "",
+        "",
+        award.maxTotal,
+      ]);
+  }
+  return rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+// Quote a value for CSV. Text that starts with = + - @ gets a leading ' so a
+// spreadsheet does not run it as a formula
+function csvCell(value: unknown): string {
+  let s = String(value ?? "");
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }

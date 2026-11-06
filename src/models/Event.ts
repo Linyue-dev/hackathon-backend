@@ -426,6 +426,48 @@ export async function endJudging(id: string): Promise<WithId<Event>> {
 }
 
 /**
+ * Publish the results: resultsPublishedAt is set. This locks the final placings.
+ */
+export async function publishResults(id: string): Promise<WithId<Event>> {
+  const event = await getEventById(id);
+  if (event.resultsPublishedAt)
+    throw new AppError(
+      409,
+      "results_published",
+      "The results are already published",
+    );
+  return saveEventChanges(event._id, { resultsPublishedAt: new Date() });
+}
+
+/**
+ * Undo a publish: resultsPublishedAt is removed and the placings can change again.
+ */
+export async function unpublishResults(id: string): Promise<WithId<Event>> {
+  const event = await getEventById(id);
+  if (!event.resultsPublishedAt)
+    throw new AppError(
+      409,
+      "results_not_published",
+      "The results are not published",
+    );
+  try {
+    const updated = await eventsCollection.findOneAndUpdate(
+      { _id: event._id },
+      { $unset: { resultsPublishedAt: "" }, $set: { updatedAt: new Date() } },
+      { returnDocument: "after" },
+    );
+    if (!updated) throw new DatabaseError("Unable to update the event");
+    return updated;
+  } catch (err: unknown) {
+    if (err instanceof DatabaseError) throw err;
+    throw new DatabaseError(
+      "Update Event Error: " +
+        (err instanceof Error ? err.message : String(err)),
+    );
+  }
+}
+
+/**
  * Judge work (scores, starting a team) is allowed only while judging is open.
  * 409 judging_not_started before it starts, 423 judging_closed after it ends.
  */

@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import * as resultModel from "./../models/Result.js";
 import { handleError } from "./../utils/errorHandler.js";
 import * as sponsorChoiceModel from "./../models/SponsorChoice.js";
+import * as eventModel from "./../models/Event.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -13,6 +14,9 @@ type AwardParams = { id: string; awardId: string };
 router.get("/events/:id/results/preliminary", getPreliminaryResults);
 router.get("/events/:id/results/final", getFinalResults);
 router.put("/events/:id/results/final/:awardId", setFinalPlacements);
+router.post("/events/:id/results/publish", publishResults);
+router.post("/events/:id/results/unpublish", unpublishResults);
+router.get("/events/:id/results/export.csv", exportResults);
 
 // ============ Handlers ============
 
@@ -81,4 +85,55 @@ async function setFinalPlacements(req: Request<AwardParams>, res: Response) {
   }
 }
 
+/**
+ * POST /events/:id/results/publish
+ * Publish the winners. resultsPublishedAt is set and the final placings are
+ * locked: PUT /events/:id/results/final/:awardId is refused until unpublish.
+ * No body. :id is the event id.
+ * Returns 200 with the event.
+ * Errors: 400 invalid_input - the event does not exist.
+ * 409 results_published - the results are already published.
+ */
+async function publishResults(req: Request<IdParams>, res: Response) {
+  try {
+    res.json(await eventModel.publishResults(req.params.id));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * POST /events/:id/results/unpublish
+ * Undo a publish. resultsPublishedAt is removed and the placings can change again.
+ * No body. :id is the event id.
+ * Returns 200 with the event.
+ * Errors: 400 invalid_input - the event does not exist.
+ * 409 results_not_published - the results are not published.
+ */
+async function unpublishResults(req: Request<IdParams>, res: Response) {
+  try {
+    res.json(await eventModel.unpublishResults(req.params.id));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * GET /events/:id/results/export.csv
+ * Download the scores and the final placings as a CSV file. :id is the event id.
+ * One row per team and challenge. Columns: Challenge, Team, Table,
+ * Final rank, Note, Average total, Max total.
+ * Returns 200 with the CSV file (text/csv).
+ * Errors: 400 invalid_input - the event does not exist.
+ */
+async function exportResults(req: Request<IdParams>, res: Response) {
+  try {
+    const csv = await resultModel.exportResultsCsv(req.params.id);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="results.csv"');
+    res.send(csv);
+  } catch (err) {
+    handleError(err, res);
+  }
+}
 export default router;
