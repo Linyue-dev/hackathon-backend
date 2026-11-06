@@ -10,14 +10,14 @@ type ByJudgeParams = { eventId: string; judgeId: string };
 type TeamParams = { teamId: string };
 
 // ============ Routes ============
-router.put("/scores/:teamId/:judgeId", saveDraftScores);
 router.get("/scores/:teamId/raw/:judgeId", getRawScores);
+router.put("/scores/:teamId/:judgeId", saveDraftScores);
 router.post("/scores/:teamId/submit/:judgeId", submitScores);
 router.patch("/scores/:teamId/:judgeId", updateScores);
-router.post("/scores/:teamId/final/:judgeId", finalSubmitScores);
 router.get("/scores/:eventId/byJudge/:judgeId", getScoresByJudge);
-router.get("/scores/:teamId/all", getScoresByTeam);
+router.post("/scores/:teamId/final/:judgeId", finalSubmitScores);
 router.get("/scores/:teamId/history/:judgeId", getScoreHistory);
+router.get("/scores/:teamId/all", getScoresByTeam);
 
 // ============ Handlers ============
 // A judge's scores for a team go through three stages:

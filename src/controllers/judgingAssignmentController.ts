@@ -9,17 +9,18 @@ const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.patch("/assignments/:id", updateJudgingAssignment);
-router.delete("/assignments/:id", deleteJudgingAssignment);
+router.get("/assignments/:judgeId", getJudgeSession);
 router.post("/assignments/start/:judgeId/:teamId", startAssignment);
 router.post("/assignments/end/:judgeId/:teamId", endAssignment);
 router.get("/assignments/one/:judgeId", getJudgeTeams);
-router.get("/assignments/:judgeId", getJudgeSession);
+
 router.get("/events/:id/assignments", getAssignmentMatrix);
 router.put("/events/:id/assignments", saveAssignmentMatrix);
+router.post("/events/:id/assignments/auto", suggestAssignments);
 router.post("/events/:id/assignments/one/:judgeId/:teamId", assignOne);
 router.delete("/events/:id/assignments/one/:judgeId/:teamId", removeOne);
-router.post("/events/:id/assignments/auto", suggestAssignments);
+router.patch("/assignments/:id", updateJudgingAssignment);
+router.delete("/assignments/:id", deleteJudgingAssignment);
 
 // ============ Handlers ============
 

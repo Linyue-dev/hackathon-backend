@@ -8,12 +8,10 @@ const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/events/:id/awards", createAward);
 router.get("/events/:id/awards", getAwards);
-router.get("/awards/:id", getAwardById);
+router.post("/events/:id/awards", createAward);
 router.patch("/awards/:id", updateAward);
 router.delete("/awards/:id", deleteAward);
-
 router.get("/awards/:id/form", getForm);
 router.put("/awards/:id/form", saveForm);
 
@@ -79,19 +77,6 @@ async function getAwards(req: Request<IdParams>, res: Response) {
     );
     res.set("X-Total-Count", String(total));
     res.json(awards);
-  } catch (err) {
-    handleError(err, res);
-  }
-}
-
-/**
- * GET /awards/:id
- * One award, including instructions and criteria.
- * Errors: 400 if the award does not exist.
- */
-async function getAwardById(req: Request<IdParams>, res: Response) {
-  try {
-    res.json(await awardModel.getAwardById(req.params.id));
   } catch (err) {
     handleError(err, res);
   }
