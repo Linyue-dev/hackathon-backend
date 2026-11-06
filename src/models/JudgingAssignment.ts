@@ -579,8 +579,10 @@ export async function findAssignmentsOfJudge(
 }
 
 /**
- * What a judge sees when opening an event: who they are, the event, the
- * judging window and how far they are. The judge must be in the event.
+ * The judge's dashboard for one event: who the judge is, the event (name,
+ * theme, status and the judging window), and the judge's progress.
+ * progress counts the judge's assignments: teams (all), started, submitted
+ * (interim) and final (locked). The judge must be in the event.
  */
 export async function getJudgeSession(eventId: string, judgeId: string) {
   // Each of these throws InvalidInputError if the record does not exist

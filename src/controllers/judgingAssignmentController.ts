@@ -114,7 +114,7 @@ async function getJudgeTeams(req: Request<JudgeParams>, res: Response) {
 
 /**
  * GET /assignments/:judgeId?eventId=
- * The first judge screen: the judge, the event and the judging progress.
+ * The judge's dashboard for one event: the judge, the event and the judging progress.
  * Returns 200 with { judge: { id, firstName, lastName, email, affiliation },
  * event: { id, name, theme, status, judgingStartedAt, judgingEndedAt },
  * progress: { teams, started, submitted, final } }.
