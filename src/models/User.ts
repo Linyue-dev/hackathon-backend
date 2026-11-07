@@ -19,6 +19,7 @@ import {
   escapeRegex,
 } from "../utils/validateUtils.js";
 import { Pagination } from "../utils/pagination.js";
+import { AppError } from "../errors/AppError.js";
 
 let client: MongoClient;
 export let usersCollection: Collection<User>;
@@ -32,14 +33,21 @@ export interface User {
   email: string;
   passwordHash: string;
   phone?: string;
-  role: "owner" | "admin" | "organizer" | "viewer";
+  role: "admin" | "viewer";
   status: "pending" | "active" | "declined";
   createdAt: Date;
   updatedAt: Date;
+  // true only for judge / mentor code accounts; they can do nothing else
+  isLimited: boolean;
+  failedLoginAttempts?: number;
+  lockedUntil?: Date;
 }
 
-// What we return to callers: never the password hash.
-export type PublicUser = Omit<User, "passwordHash">;
+// What we return to callers: never the password hash or the login lock data.
+export type PublicUser = Omit<
+  User,
+  "passwordHash" | "failedLoginAttempts" | "lockedUntil"
+>;
 
 export interface NewUserInput {
   firstName: string;
@@ -55,11 +63,17 @@ export interface UserFilter {
 }
 
 const USER_STATUSES = ["pending", "active", "declined"] as const;
-const ASSIGNABLE_ROLES = ["admin", "organizer", "viewer"] as const;
+const ASSIGNABLE_ROLES = ["admin", "viewer"] as const;
 const SALT_ROUNDS = 10;
 
 // Role and status are never changed through the normal update.
 const UPDATABLE_FIELDS = ["firstName", "lastName", "phone"] as const;
+
+// The first admin is the account whose email is ADMIN_EMAIL
+function isFirstAdmin(email: string): boolean {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  return !!adminEmail && email === normalizeEmail(adminEmail);
+}
 
 /**
  * Connect to the database and prepare the users collection.
@@ -100,8 +114,10 @@ export async function initialize(
 //#region Add functions
 
 /**
- * Sign up a new account. It starts as a pending viewer, except the account
- * whose email matches OWNER_EMAIL, which becomes the active Owner.
+ * Sign up a new account. It starts as a pending viewer; the code sent by email
+ * activates it (see activateUser). An account that is still pending can sign up
+ * again: the new details replace the old ones, because its email was never
+ * verified.
  */
 export async function addUser(input: NewUserInput): Promise<PublicUser> {
   if (!usersCollection)
@@ -125,22 +141,20 @@ export async function addUser(input: NewUserInput): Promise<PublicUser> {
 
   try {
     const existing = await usersCollection.findOne({ email: normalizedEmail });
-    if (existing)
+    if (existing && existing.status !== "pending")
       throw new InvalidInputError(
         `An account with the email ${email} already exists`,
       );
 
-    // The Owner is whoever signs up with the configured OWNER_EMAIL,
-    // but only while no Owner exists yet (there is only ever one Owner).
-    const ownerEmail = process.env.OWNER_EMAIL;
-    const matchesOwnerEmail =
-      !!ownerEmail && normalizedEmail === normalizeEmail(ownerEmail);
-    const ownerExists = matchesOwnerEmail
-      ? (await usersCollection.findOne({ role: "owner" })) !== null
-      : false;
-    const isOwner = matchesOwnerEmail && !ownerExists;
-
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+    if (existing)
+      return await saveChanges(existing._id, {
+        firstName,
+        lastName,
+        passwordHash,
+        phone,
+      });
 
     const now = new Date();
     const user: User = {
@@ -149,8 +163,9 @@ export async function addUser(input: NewUserInput): Promise<PublicUser> {
       email: normalizedEmail,
       passwordHash,
       phone,
-      role: isOwner ? "owner" : "viewer",
-      status: isOwner ? "active" : "pending",
+      role: "viewer",
+      status: "pending",
+      isLimited: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -279,8 +294,117 @@ export async function declineUser(id: string): Promise<PublicUser> {
   return saveChanges(user._id, { status: "declined" });
 }
 
+const MAX_FAILED_LOGINS = 5;
+const LOCK_MINUTES = 15;
+
 /**
- * Promote or demote a user. The Owner role can't be given or changed.
+ * Check an email and password. After 5 wrong passwords in a row the account is
+ * locked for 15 minutes. The same error is used for an unknown email and a
+ * wrong password, so nobody can find out which emails have accounts.
+ */
+export async function loginUser(
+  email: unknown,
+  password: unknown,
+): Promise<PublicUser> {
+  if (
+    typeof email !== "string" ||
+    !email ||
+    typeof password !== "string" ||
+    !password
+  )
+    throw new InvalidInputError(
+      "Invalid input: email and password are required",
+    );
+  if (!usersCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  const wrong = new AppError(
+    401,
+    "invalid_credentials",
+    "Wrong email or password",
+  );
+
+  try {
+    const user = await usersCollection.findOne({
+      email: normalizeEmail(email),
+    });
+    if (!user) throw wrong;
+
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      const minutes = Math.ceil(
+        (user.lockedUntil.getTime() - Date.now()) / 60000,
+      );
+      throw new AppError(
+        429,
+        "account_locked",
+        `Too many failed attempts. Try again in ${minutes} minute(s)`,
+      );
+    }
+
+    if (!(await bcrypt.compare(password, user.passwordHash))) {
+      const updated = await usersCollection.findOneAndUpdate(
+        { _id: user._id },
+        { $inc: { failedLoginAttempts: 1 } },
+        { returnDocument: "after" },
+      );
+      if (updated && (updated.failedLoginAttempts ?? 0) >= MAX_FAILED_LOGINS)
+        await usersCollection.updateOne(
+          { _id: user._id },
+          {
+            $set: {
+              failedLoginAttempts: 0,
+              lockedUntil: new Date(Date.now() + LOCK_MINUTES * 60000),
+            },
+          },
+        );
+      throw wrong;
+    }
+
+    // Status is checked only after the password is right
+    if (user.status === "pending")
+      throw new AppError(
+        403,
+        "email_not_verified",
+        "The email is not verified. Sign up again to get a new code",
+      );
+    if (user.status === "declined")
+      throw new AppError(403, "account_declined", "This account was declined");
+
+    await usersCollection.updateOne(
+      { _id: user._id },
+      { $set: { failedLoginAttempts: 0 }, $unset: { lockedUntil: "" } },
+    );
+    return toPublicUser(user);
+  } catch (err: unknown) {
+    if (err instanceof AppError || err instanceof InvalidInputError) throw err;
+    throw new DatabaseError(
+      "Database error: unable to log in" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+}
+
+/**
+ * Activate an account after its email code was accepted. The account whose
+ * email is ADMIN_EMAIL becomes an admin here, not at sign up, so only the
+ * person who can read that mailbox can become the first admin.
+ */
+export async function activateUser(id: string): Promise<PublicUser> {
+  const user = await findUserById(id);
+  if (user.status === "declined")
+    throw new AppError(403, "account_declined", "This account was declined");
+  if (user.status === "active") return toPublicUser(user);
+
+  return saveChanges(
+    user._id,
+    isFirstAdmin(user.email)
+      ? { status: "active", role: "admin" }
+      : { status: "active" },
+  );
+}
+
+/**
+ * Promote or demote a user. The first admin's role can't be changed.
  */
 export async function changeUserRole(
   id: string,
@@ -292,8 +416,8 @@ export async function changeUserRole(
     );
 
   const user = await findUserById(id);
-  if (user.role === "owner")
-    throw new InvalidInputError("The Owner's role cannot be changed");
+  if (isFirstAdmin(user.email))
+    throw new InvalidInputError("The first admin's role cannot be changed");
 
   return saveChanges(user._id, { role });
 }
@@ -304,8 +428,8 @@ export async function changeUserRole(
 
 export async function deleteUserById(id: string): Promise<PublicUser> {
   const user = await findUserById(id);
-  if (user.role === "owner")
-    throw new InvalidInputError("The Owner account cannot be deleted");
+  if (isFirstAdmin(user.email))
+    throw new InvalidInputError("The first admin account cannot be deleted");
 
   try {
     const result = await usersCollection.deleteOne({ _id: user._id });
@@ -344,7 +468,7 @@ export function getCollection(): Collection<User> {
 //#region Helpers
 
 function toPublicUser(user: User): PublicUser {
-  const { passwordHash, ...rest } = user;
+  const { passwordHash, failedLoginAttempts, lockedUntil, ...rest } = user;
   return rest;
 }
 

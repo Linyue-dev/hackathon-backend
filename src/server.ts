@@ -9,6 +9,7 @@ import * as awardModel from "./models/Award.js";
 import * as eventJudgeModel from "./models/EventJudge.js";
 import * as scoreModel from "./models/Score.js";
 import * as sponsorChoiceModel from "./models/SponsorChoice.js";
+import * as verificationCodeModel from "./models/VerificationCode.js";
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
@@ -23,6 +24,14 @@ async function startServer() {
       throw new Error("MONGO_URI environment variable is required");
     }
 
+    // Warn early about missing auth settings
+    if (!process.env.JWT_SECRET)
+      console.warn("WARNING: JWT_SECRET is not set. Logins will fail.");
+    if (!process.env.ADMIN_EMAIL)
+      console.warn(
+        "WARNING: ADMIN_EMAIL is not set. Nobody will become the first admin.",
+      );
+
     await eventModel.initialize(MONGO_URI, DB_NAME, false);
     await judgeModel.initialize(MONGO_URI, DB_NAME, false);
     await teamModel.initialize(MONGO_URI, DB_NAME, false);
@@ -32,6 +41,7 @@ async function startServer() {
     await eventJudgeModel.initialize(MONGO_URI, DB_NAME, false);
     await scoreModel.initialize(MONGO_URI, DB_NAME, false);
     await sponsorChoiceModel.initialize(MONGO_URI, DB_NAME, false);
+    await verificationCodeModel.initialize(MONGO_URI, DB_NAME, false);
 
     app.listen(PORT, () => {
       console.log(`✅ Server is running on http://localhost:${PORT}`);

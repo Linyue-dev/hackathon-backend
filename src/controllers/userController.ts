@@ -3,23 +3,24 @@ import * as userModel from "../models/User.js";
 import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
 import { parsePagination } from "../utils/pagination.js";
+import { authenticate, requireAdmin } from "../middleware/authenticate.js";
+import { AppError } from "../errors/AppError.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/users/add", createUser);
-router.get("/users", getUsers);
-router.get("/users/:id", getUserById);
-router.patch("/users/:id", updateUser);
-router.post("/users/:id/approve", approveUser);
-router.post("/users/:id/decline", declineUser);
-router.patch("/users/:id/role", changeUserRole);
-router.delete("/users/:id", deleteUser);
+router.post("/users/add", authenticate, requireAdmin, createUser);
+router.get("/users", authenticate, requireAdmin, getUsers);
+router.get("/users/:id", authenticate, requireAdmin, getUserById);
+router.patch("/users/:id", authenticate, requireAdmin, updateUser);
+router.post("/users/:id/approve", authenticate, requireAdmin, approveUser);
+router.post("/users/:id/decline", authenticate, requireAdmin, declineUser);
+router.patch("/users/:id/role", authenticate, requireAdmin, changeUserRole);
+router.delete("/users/:id", authenticate, requireAdmin, deleteUser);
 
 // ============ Handlers ============
-// Note: login and permissions are not built yet. Every endpoint is open for
-// now, and the role rules will change when authentication is added.
+// Every endpoint here is for admins only (authenticate + requireAdmin).
 
 /**
  * POST /users/add
@@ -128,12 +129,19 @@ async function declineUser(req: Request<IdParams>, res: Response) {
 
 /**
  * PATCH /users/:id/role
- * Promote or demote a user. Body: role (required), one of the allowed roles.
+ * Promote or demote a user. Body: role (required), "admin" or "viewer".
  * Returns 200 with the user.
- * Errors: 400 invalid role or user not found.
+ * Errors: 400 invalid role or user not found, or the first admin.
+ * 403 cannot_demote_self - an admin cannot change their own role.
  */
 async function changeUserRole(req: Request<IdParams>, res: Response) {
   try {
+    if (req.params.id === req.auth!.userId && req.body?.role !== "admin")
+      throw new AppError(
+        403,
+        "cannot_demote_self",
+        "You cannot change your own role",
+      );
     res.json(await userModel.changeUserRole(req.params.id, req.body?.role));
   } catch (err) {
     handleError(err, res);
