@@ -3,17 +3,40 @@ import * as awardModel from "../models/Award.js";
 import { handleError } from "../utils/errorHandler.js";
 import { parsePagination } from "../utils/pagination.js";
 import type { IdParams } from "../utils/types.js";
+import { authenticate } from "../middleware/authenticate.js";
+import { authorize, authorizeByAward } from "../middleware/authorize.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.get("/events/:id/awards", getAwards);
-router.post("/events/:id/awards", createAward);
-router.patch("/awards/:id", updateAward);
-router.delete("/awards/:id", deleteAward);
-router.get("/awards/:id/form", getForm);
-router.put("/awards/:id/form", saveForm);
+router.get("/events/:id/awards", authenticate, authorize("viewer"), getAwards);
+router.post(
+  "/events/:id/awards",
+  authenticate,
+  authorize("owner"),
+  createAward,
+);
+router.patch(
+  "/awards/:id",
+  authenticate,
+  authorizeByAward("owner"),
+  updateAward,
+);
+router.delete(
+  "/awards/:id",
+  authenticate,
+  authorizeByAward("owner"),
+  deleteAward,
+);
+// Viewers and judges both read the form, so any logged-in user may
+router.get("/awards/:id/form", authenticate, getForm);
+router.put(
+  "/awards/:id/form",
+  authenticate,
+  authorizeByAward("owner"),
+  saveForm,
+);
 
 // ============ Handlers ============
 

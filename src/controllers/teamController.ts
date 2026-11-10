@@ -4,17 +4,28 @@ import { handleError } from "./../utils/errorHandler.js";
 import type { IdParams } from "./../utils/types.js";
 import { parsePagination } from "./../utils/pagination.js";
 import * as scoreModel from "./../models/Score.js";
+import { authenticate } from "../middleware/authenticate.js";
+import { authorize, authorizeByTeam } from "../middleware/authorize.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/events/:id/teams", createTeam);
-router.get("/events/:id/teams", getTeams);
-router.get("/teams/:id", getTeamById);
-router.patch("/teams/:id", updateTeam);
-router.delete("/teams/:id", deleteTeam);
-
+router.post(
+  "/events/:id/teams",
+  authenticate,
+  authorize("organizer"),
+  createTeam,
+);
+router.get("/events/:id/teams", authenticate, authorize("viewer"), getTeams);
+router.get("/teams/:id", authenticate, authorizeByTeam("viewer"), getTeamById);
+router.patch(
+  "/teams/:id",
+  authenticate,
+  authorizeByTeam("organizer"),
+  updateTeam,
+);
+router.delete("/teams/:id", authenticate, authorizeByTeam("owner"), deleteTeam);
 // ============ Handlers ============
 
 /**

@@ -4,23 +4,66 @@ import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
 import * as scoreModel from "../models/Score.js";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
+import { authenticate } from "../middleware/authenticate.js";
+import { authorize, authorizeByAssignment } from "../middleware/authorize.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.get("/assignments/:judgeId", getJudgeSession);
-router.post("/assignments/start/:judgeId/:teamId", startAssignment);
-router.post("/assignments/end/:judgeId/:teamId", endAssignment);
-router.get("/assignments/one/:judgeId", getJudgeTeams);
+// Judge routes. The judge-side check comes with the judge accounts; for now
+// any logged-in user passes.
+router.get("/assignments/:judgeId", authenticate, getJudgeSession);
+router.post(
+  "/assignments/start/:judgeId/:teamId",
+  authenticate,
+  startAssignment,
+);
+router.post("/assignments/end/:judgeId/:teamId", authenticate, endAssignment);
+router.get("/assignments/one/:judgeId", authenticate, getJudgeTeams);
 
-router.get("/events/:id/assignments", getAssignmentMatrix);
-router.put("/events/:id/assignments", saveAssignmentMatrix);
-router.post("/events/:id/assignments/auto", suggestAssignments);
-router.post("/events/:id/assignments/one/:judgeId/:teamId", assignOne);
-router.delete("/events/:id/assignments/one/:judgeId/:teamId", removeOne);
-router.patch("/assignments/:id", updateJudgingAssignment);
-router.delete("/assignments/:id", deleteJudgingAssignment);
+router.get(
+  "/events/:id/assignments",
+  authenticate,
+  authorize("organizer"),
+  getAssignmentMatrix,
+);
+router.put(
+  "/events/:id/assignments",
+  authenticate,
+  authorize("organizer"),
+  saveAssignmentMatrix,
+);
+router.post(
+  "/events/:id/assignments/auto",
+  authenticate,
+  authorize("organizer"),
+  suggestAssignments,
+);
+router.post(
+  "/events/:id/assignments/one/:judgeId/:teamId",
+  authenticate,
+  authorize("organizer"),
+  assignOne,
+);
+router.delete(
+  "/events/:id/assignments/one/:judgeId/:teamId",
+  authenticate,
+  authorize("organizer"),
+  removeOne,
+);
+router.patch(
+  "/assignments/:id",
+  authenticate,
+  authorizeByAssignment("organizer"),
+  updateJudgingAssignment,
+);
+router.delete(
+  "/assignments/:id",
+  authenticate,
+  authorizeByAssignment("organizer"),
+  deleteJudgingAssignment,
+);
 
 // ============ Handlers ============
 

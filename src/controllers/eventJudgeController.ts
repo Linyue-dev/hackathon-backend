@@ -5,19 +5,52 @@ import { handleError } from "../utils/errorHandler.js";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { parsePagination } from "../utils/pagination.js";
 import * as judgingAssignmentModel from "./../models/JudgingAssignment.js";
+import { authenticate } from "../middleware/authenticate.js";
+import { authorize } from "../middleware/authorize.js";
+
 const router = express.Router();
 export const routeRoot = "/api/v1";
 type EventJudgeParams = IdParams & { judgeId: string };
 
 // ============ Routes ============
 // The id in the path is the event id
-router.post("/events/:id/assignJudge", assignJudges);
-router.get("/events/:id/judges", getEventJudges);
-router.get("/events/:id/judges/:judgeId", getEventJudge);
+router.post(
+  "/events/:id/assignJudge",
+  authenticate,
+  authorize("organizer"),
+  assignJudges,
+);
+router.get(
+  "/events/:id/judges",
+  authenticate,
+  authorize("viewer"),
+  getEventJudges,
+);
+router.get(
+  "/events/:id/judges/:judgeId",
+  authenticate,
+  authorize("viewer"),
+  getEventJudge,
+);
 
-router.patch("/events/:id/judges/:judgeId", updateEventJudge);
-router.put("/events/:id/judges/:judgeId/conflicts", setConflicts);
-router.delete("/events/:id/removeJudge/:judgeId", removeJudge);
+router.patch(
+  "/events/:id/judges/:judgeId",
+  authenticate,
+  authorize("organizer"),
+  updateEventJudge,
+);
+router.put(
+  "/events/:id/judges/:judgeId/conflicts",
+  authenticate,
+  authorize("organizer"),
+  setConflicts,
+);
+router.delete(
+  "/events/:id/removeJudge/:judgeId",
+  authenticate,
+  authorize("organizer"),
+  removeJudge,
+);
 
 // ============ Handlers ============
 

@@ -4,17 +4,28 @@ import { handleError } from "../utils/errorHandler.js";
 import type { IdParams } from "../utils/types.js";
 import { parsePagination } from "../utils/pagination.js";
 import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
+import { authenticate, requireAdmin } from "../middleware/authenticate.js";
+import { requireOrganizerSomewhere } from "../middleware/authorize.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/judges", createJudge);
-router.get("/judges", getJudges);
-router.get("/judges/:id", getJudgeById);
-router.patch("/judges/:id", updateJudge);
-router.delete("/judges/:id", deleteJudge);
-
+router.post("/judges", authenticate, requireOrganizerSomewhere, createJudge);
+router.get("/judges", authenticate, requireOrganizerSomewhere, getJudges);
+router.get(
+  "/judges/:id",
+  authenticate,
+  requireOrganizerSomewhere,
+  getJudgeById,
+);
+router.patch(
+  "/judges/:id",
+  authenticate,
+  requireOrganizerSomewhere,
+  updateJudge,
+);
+router.delete("/judges/:id", authenticate, requireAdmin, deleteJudge);
 // ============ Handlers ============
 
 /**

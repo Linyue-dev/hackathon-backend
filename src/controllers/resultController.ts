@@ -3,6 +3,8 @@ import * as resultModel from "./../models/Result.js";
 import { handleError } from "./../utils/errorHandler.js";
 import * as sponsorChoiceModel from "./../models/SponsorChoice.js";
 import * as eventModel from "./../models/Event.js";
+import { authenticate } from "../middleware/authenticate.js";
+import { authorize } from "../middleware/authorize.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -11,12 +13,42 @@ type IdParams = { id: string };
 type AwardParams = { id: string; awardId: string };
 
 // ============ Routes ============
-router.get("/events/:id/results/preliminary", getPreliminaryResults);
-router.get("/events/:id/results/final", getFinalResults);
-router.put("/events/:id/results/final/:awardId", setFinalPlacements);
-router.post("/events/:id/results/publish", publishResults);
-router.post("/events/:id/results/unpublish", unpublishResults);
-router.get("/events/:id/results/export.csv", exportResults);
+router.get(
+  "/events/:id/results/preliminary",
+  authenticate,
+  authorize("organizer"),
+  getPreliminaryResults,
+);
+router.get(
+  "/events/:id/results/final",
+  authenticate,
+  authorize("organizer"),
+  getFinalResults,
+);
+router.put(
+  "/events/:id/results/final/:awardId",
+  authenticate,
+  authorize("owner"),
+  setFinalPlacements,
+);
+router.post(
+  "/events/:id/results/publish",
+  authenticate,
+  authorize("owner"),
+  publishResults,
+);
+router.post(
+  "/events/:id/results/unpublish",
+  authenticate,
+  authorize("owner"),
+  unpublishResults,
+);
+router.get(
+  "/events/:id/results/export.csv",
+  authenticate,
+  authorize("owner"),
+  exportResults,
+);
 
 // ============ Handlers ============
 
