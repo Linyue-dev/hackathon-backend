@@ -6,6 +6,9 @@ import { parsePagination } from "./../utils/pagination.js";
 import * as scoreModel from "./../models/Score.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { authorize, authorizeByTeam } from "../middleware/authorize.js";
+import * as awardModel from "../models/Award.js";
+import * as eventJudgeModel from "../models/EventJudge.js";
+import { authorizeJudge, eventFromTeam } from "../middleware/authorize.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -26,6 +29,14 @@ router.patch(
   updateTeam,
 );
 router.delete("/teams/:id", authenticate, authorizeByTeam("owner"), deleteTeam);
+
+router.get(
+  "/teams/:teamId/allAwardsToJudge/:judgeId",
+  authenticate,
+  authorizeJudge(eventFromTeam("teamId")),
+  getAwardsToJudge,
+);
+
 // ============ Handlers ============
 
 /**
@@ -133,6 +144,39 @@ async function deleteTeam(req: Request<IdParams>, res: Response) {
   try {
     const team = await teamModel.deleteTeamById(req.params.id);
     res.json({ message: "Team deleted", team });
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * GET /teams/:teamId/allAwardsToJudge/:judgeId
+ * The awards this judge scores for this team: the awards of the team's event
+ * with judgedBy "judge". The judge must be in the event.
+ * Returns 200 with a plain array of { awardId, formId, name, type } in creation
+ * order. formId is the award id: the form is read with GET /awards/:id/form.
+ * Note: awards the team did not apply for are not filtered out yet.
+ * Errors: 400 if the team or judge does not exist, or the judge is not in the
+ * event. 401 unauthenticated. 403 forbidden.
+ */
+async function getAwardsToJudge(
+  req: Request<{ teamId: string; judgeId: string }>,
+  res: Response,
+) {
+  try {
+    const { teamId, judgeId } = req.params;
+    const team = await teamModel.getTeamById(teamId);
+    // Throws InvalidInputError if the judge is not in the event
+    await eventJudgeModel.getEventJudge(team.eventId, judgeId);
+    const awards = await awardModel.getJudgedAwardsOfEvent(team.eventId);
+    res.json(
+      awards.map((a) => ({
+        awardId: String(a._id),
+        formId: String(a._id),
+        name: a.name,
+        type: a.type,
+      })),
+    );
   } catch (err) {
     handleError(err, res);
   }

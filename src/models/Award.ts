@@ -268,6 +268,24 @@ export async function getAllAwards(
   }
 }
 
+/** The awards of an event that judges score (judgedBy "judge"), in creation order. */
+export async function getJudgedAwardsOfEvent(
+  eventId: string,
+): Promise<WithId<Award>[]> {
+  if (!awardsCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  try {
+    return await awardsCollection
+      .find({ eventId, judgedBy: "judge" })
+      .sort({ createdAt: 1, _id: 1 })
+      .toArray();
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to retrieve the awards to judge",
+    );
+  }
+}
+
 //#endregion
 
 //#region Form functions
