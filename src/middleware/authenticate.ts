@@ -67,3 +67,17 @@ export function requireAdmin<P>(
     );
   next();
 }
+
+/** Judge / mentor code accounts pass no further. Use after authenticate. */
+export function requireNotLimited<P>(
+  req: Request<P>,
+  res: Response,
+  next: NextFunction,
+) {
+  if (req.auth?.isLimited)
+    return handleError(
+      new AppError(403, "forbidden", "This account cannot do this"),
+      res,
+    );
+  next();
+}

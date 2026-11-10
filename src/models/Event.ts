@@ -17,6 +17,7 @@ import {
 } from "../utils/validateUtils.js";
 import { DEFAULT_LIMIT, Pagination } from "../utils/pagination.js";
 import { AppError } from "../errors/AppError.js";
+import * as userModel from "./User.js";
 
 let client: MongoClient;
 export let eventsCollection: Collection<Event>;
@@ -57,6 +58,10 @@ export interface Event {
   endDatetime?: Date;
   createdAt: Date;
   updatedAt: Date;
+  // Ids of the users who own / organize this event. A global admin has the
+  // owner rights in every event. Older events may not have these fields.
+  owners?: string[];
+  organizers?: string[];
 }
 
 export interface NewEventInput {
@@ -154,7 +159,10 @@ export async function initialize(
  * Note: unlike updateEventById, this does not refuse the judging statuses yet,
  * so create events as "draft" or "in-progress".
  */
-export async function addEvent(input: NewEventInput): Promise<Event> {
+export async function addEvent(
+  input: NewEventInput,
+  creatorId: string,
+): Promise<Event> {
   if (!eventsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
@@ -201,6 +209,8 @@ export async function addEvent(input: NewEventInput): Promise<Event> {
     endDatetime: end,
     createdAt: now,
     updatedAt: now,
+    owners: [creatorId],
+    organizers: [],
   };
 
   try {
@@ -486,6 +496,132 @@ export async function assertJudgingOpen(eventId: string): Promise<void> {
     "Judging has not started for this event",
   );
 }
+//#endregion
+
+//#region Owners and organizers
+
+export type EventMemberList = "owners" | "organizers";
+
+export interface EventMember {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+}
+
+/**
+ * Add a user to the owners or organizers of an event. Only an active account
+ * that is not a judge / mentor account can be added. Adding twice changes nothing.
+ * Returns the updated list.
+ */
+export async function addEventMember(
+  eventId: string,
+  list: EventMemberList,
+  userId: unknown,
+): Promise<EventMember[]> {
+  if (typeof userId !== "string" || !userId)
+    throw new InvalidInputError("Invalid input: userId is required");
+
+  const event = await getEventById(eventId);
+  const user = await userModel.getUserById(userId);
+  if (user.status !== "active")
+    throw new InvalidInputError("Invalid input: the account is not active");
+  if (user.isLimited)
+    throw new InvalidInputError(
+      "Invalid input: a judge or mentor account cannot be an owner or organizer",
+    );
+
+  const add = list === "owners" ? { owners: userId } : { organizers: userId };
+  try {
+    await eventsCollection.updateOne(
+      { _id: event._id },
+      { $addToSet: add, $set: { updatedAt: new Date() } },
+    );
+  } catch (err: unknown) {
+    throw new DatabaseError(
+      "Database error: unable to update the event" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+  return getEventMembers(eventId, list);
+}
+
+/**
+ * Remove a user from the owners or organizers of an event. Removing someone who
+ * is not on the list changes nothing. Returns the updated list.
+ */
+export async function removeEventMember(
+  eventId: string,
+  list: EventMemberList,
+  userId: string,
+): Promise<EventMember[]> {
+  const event = await getEventById(eventId);
+  const remove =
+    list === "owners" ? { owners: userId } : { organizers: userId };
+  try {
+    await eventsCollection.updateOne(
+      { _id: event._id },
+      { $pull: remove, $set: { updatedAt: new Date() } },
+    );
+  } catch (err: unknown) {
+    throw new DatabaseError(
+      "Database error: unable to update the event" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+  return getEventMembers(eventId, list);
+}
+
+/** The owners or organizers of an event, with their names and emails. */
+export async function getEventMembers(
+  eventId: string,
+  list: EventMemberList,
+): Promise<EventMember[]> {
+  const event = await getEventById(eventId);
+  const ids = event[list] ?? [];
+  const results = await Promise.allSettled(
+    ids.map((id) => userModel.getUserById(id)),
+  );
+  // A user who was deleted is skipped
+  return results.flatMap((r) =>
+    r.status === "fulfilled"
+      ? [
+          {
+            userId: String(r.value._id),
+            firstName: r.value.firstName,
+            lastName: r.value.lastName,
+            email: r.value.email,
+          },
+        ]
+      : [],
+  );
+}
+
+/** The events where a user is an owner or an organizer (for GET /auth/me). */
+export async function getEventsOfUser(
+  userId: string,
+): Promise<{ eventId: string; name: string; roles: string[] }[]> {
+  try {
+    const events = await eventsCollection
+      .find({ $or: [{ owners: userId }, { organizers: userId }] })
+      .sort({ createdAt: -1 })
+      .toArray();
+    return events.map((e) => ({
+      eventId: String(e._id),
+      name: e.name,
+      roles: [
+        ...(e.owners?.includes(userId) ? ["owner"] : []),
+        ...(e.organizers?.includes(userId) ? ["organizer"] : []),
+      ],
+    }));
+  } catch (err: unknown) {
+    throw new DatabaseError(
+      "Database error: unable to read the events of the user" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+}
+
 //#endregion
 
 //#region Delete functions

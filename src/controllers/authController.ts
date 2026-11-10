@@ -6,6 +6,7 @@ import { signToken } from "../utils/token.js";
 import { handleError } from "../utils/errorHandler.js";
 import { AppError } from "../errors/AppError.js";
 import { authenticate } from "../middleware/authenticate.js";
+import * as eventModel from "../models/Event.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -151,12 +152,18 @@ async function login(req: Request, res: Response) {
 
 /**
  * GET /auth/me
- * The logged-in user: id, name, email, role, isLimited, status.
+ * The logged-in user and the events where the user has a role.
+ * Returns 200 with { user, events }.
+ * user: id, name, email, role, isLimited, status.
+ * events: [{ eventId, name, roles }], roles is "owner" and/or "organizer".
+ * Judge and mentor events are not included yet.
  * Errors: 401 unauthenticated or invalid_token.
  */
 async function me(req: Request, res: Response) {
   try {
-    res.json({ user: await userModel.getUserById(req.auth!.userId) });
+    const user = await userModel.getUserById(req.auth!.userId);
+    const events = await eventModel.getEventsOfUser(req.auth!.userId);
+    res.json({ user, events });
   } catch (err) {
     handleError(err, res);
   }
