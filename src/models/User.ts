@@ -404,6 +404,73 @@ export async function activateUser(id: string): Promise<PublicUser> {
 }
 
 /**
+ * Give a judge a login: the code becomes the password of a judge account
+ * (isLimited). The account is created if it does not exist, and any login lock
+ * is cleared. Returns the user id.
+ * An email that belongs to a normal account is refused.
+ */
+export async function issueCodeAccount(
+  person: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+  },
+  code: string,
+): Promise<string> {
+  if (!usersCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  try {
+    const email = normalizeEmail(person.email);
+    const existing = await usersCollection.findOne({ email });
+    if (existing && !existing.isLimited)
+      throw new InvalidInputError(
+        `The email ${person.email} already belongs to a normal account`,
+      );
+
+    const passwordHash = await bcrypt.hash(code, SALT_ROUNDS);
+    const now = new Date();
+
+    if (existing) {
+      await usersCollection.updateOne(
+        { _id: existing._id },
+        {
+          $set: {
+            passwordHash,
+            status: "active",
+            failedLoginAttempts: 0,
+            updatedAt: now,
+          },
+          $unset: { lockedUntil: "" },
+        },
+      );
+      return String(existing._id);
+    }
+
+    const result = await usersCollection.insertOne({
+      firstName: person.firstName,
+      lastName: person.lastName,
+      email,
+      passwordHash,
+      phone: person.phone,
+      role: "viewer",
+      status: "active",
+      isLimited: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return String(result.insertedId);
+  } catch (err: unknown) {
+    if (err instanceof InvalidInputError) throw err;
+    throw new DatabaseError(
+      "Database error: unable to create the judge account" +
+        (err instanceof Error ? "; " + err.message : ""),
+    );
+  }
+}
+
+/**
  * Promote or demote a user. The first admin's role can't be changed.
  */
 export async function changeUserRole(

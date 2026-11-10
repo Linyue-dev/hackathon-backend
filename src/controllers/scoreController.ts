@@ -2,7 +2,12 @@ import express, { Request, Response } from "express";
 import * as scoreModel from "./../models/Score.js";
 import { handleError } from "./../utils/errorHandler.js";
 import { authenticate } from "../middleware/authenticate.js";
-import { authorizeByTeam } from "../middleware/authorize.js";
+import {
+  authorizeByTeam,
+  authorizeJudge,
+  eventFromParam,
+  eventFromTeam,
+} from "../middleware/authorize.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -14,12 +19,42 @@ type TeamParams = { teamId: string };
 // ============ Routes ============
 // Judge routes (judge or organizer). The judge-side check comes with the judge
 // accounts; for now any logged-in user passes.
-router.get("/scores/:teamId/raw/:judgeId", authenticate, getRawScores);
-router.put("/scores/:teamId/:judgeId", authenticate, saveDraftScores);
-router.post("/scores/:teamId/submit/:judgeId", authenticate, submitScores);
-router.patch("/scores/:teamId/:judgeId", authenticate, updateScores);
-router.get("/scores/:eventId/byJudge/:judgeId", authenticate, getScoresByJudge);
-router.post("/scores/:teamId/final/:judgeId", authenticate, finalSubmitScores);
+router.get(
+  "/scores/:teamId/raw/:judgeId",
+  authenticate,
+  authorizeJudge(eventFromTeam("teamId")),
+  getRawScores,
+);
+router.put(
+  "/scores/:teamId/:judgeId",
+  authenticate,
+  authorizeJudge(eventFromTeam("teamId")),
+  saveDraftScores,
+);
+router.post(
+  "/scores/:teamId/submit/:judgeId",
+  authenticate,
+  authorizeJudge(eventFromTeam("teamId")),
+  submitScores,
+);
+router.patch(
+  "/scores/:teamId/:judgeId",
+  authenticate,
+  authorizeJudge(eventFromTeam("teamId")),
+  updateScores,
+);
+router.get(
+  "/scores/:eventId/byJudge/:judgeId",
+  authenticate,
+  authorizeJudge(eventFromParam("eventId")),
+  getScoresByJudge,
+);
+router.post(
+  "/scores/:teamId/final/:judgeId",
+  authenticate,
+  authorizeJudge(eventFromTeam("teamId")),
+  finalSubmitScores,
+);
 
 router.get(
   "/scores/:teamId/history/:judgeId",

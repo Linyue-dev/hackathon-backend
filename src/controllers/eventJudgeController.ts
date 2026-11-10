@@ -52,6 +52,19 @@ router.delete(
   removeJudge,
 );
 
+router.get(
+  "/events/:id/judge-codes",
+  authenticate,
+  authorize("organizer"),
+  getJudgeCodes,
+);
+router.post(
+  "/events/:id/judge-code/regenerate",
+  authenticate,
+  authorize("organizer"),
+  regenerateJudgeCodes,
+);
+
 // ============ Handlers ============
 
 /**
@@ -218,4 +231,47 @@ async function removeJudge(req: Request<EventJudgeParams>, res: Response) {
     handleError(err, res);
   }
 }
+
+/**
+ * GET /events/:id/judge-codes
+ * The login state of every judge of the event. :id is the event id.
+ * Returns 200 with a plain array of { judgeId, firstName, lastName, email, hasAccount }.
+ * hasAccount: true when the judge already has a login. Codes are not stored, so
+ * they cannot be shown again: issue a new one with POST .../judge-code/regenerate.
+ * Errors: 400 if the event does not exist. 401 unauthenticated. 403 forbidden.
+ */
+async function getJudgeCodes(req: Request<IdParams>, res: Response) {
+  try {
+    res.json(await eventJudgeModel.getJudgeAccounts(req.params.id));
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * POST /events/:id/judge-code/regenerate
+ * Issue a new code for the judges of the event. The code is the judge's
+ * password: an earlier code stops working. :id is the event id.
+ * Body (optional): { judgeIds: [...] }. Without it, every judge of the event
+ * gets a new code.
+ * A judge who already has a normal account keeps its own password and gets
+ * code null. A judge without an account gets one.
+ * Returns 200 with a list of { judgeId, firstName, lastName, email, code, account }.
+ * The code is in this response only; it is stored as a hash and cannot be read later.
+ * Errors: 400 invalid judgeIds, a judge that is not in the event, or event not
+ * found. 401 unauthenticated. 403 forbidden.
+ */
+async function regenerateJudgeCodes(req: Request<IdParams>, res: Response) {
+  try {
+    const result = await eventJudgeModel.issueJudgeCodes(
+      req.params.id,
+      req.body?.judgeIds,
+    );
+    res.set("Cache-Control", "no-store");
+    res.json(result);
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
 export default router;

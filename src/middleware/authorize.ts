@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import * as eventModel from "../models/Event.js";
 import * as teamModel from "../models/Team.js";
 import * as awardModel from "../models/Award.js";
+import * as judgeModel from "../models/Judge.js";
 import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
 import { handleError } from "../utils/errorHandler.js";
 import { AppError } from "../errors/AppError.js";
@@ -11,8 +12,7 @@ const RANK: Record<EventLevel, number> = { viewer: 1, organizer: 2, owner: 3 };
 
 /**
  * What a user can do inside one event. A global admin has the owner rights in
- * every event. Anyone who is not limited and not on the lists is a viewer.
- * A limited (judge / mentor) account gets nothing here: it has its own checks.
+ * every event. Anyone else who is logged in is a viewer: they can read but not change.
  */
 export function getEventLevel(
   auth: { userId: string; role: string; isLimited: boolean },
@@ -21,14 +21,54 @@ export function getEventLevel(
   if (auth.role === "admin") return "owner";
   if (event.owners?.includes(auth.userId)) return "owner";
   if (event.organizers?.includes(auth.userId)) return "organizer";
-  if (!auth.isLimited) return "viewer";
-  return null;
+  return "viewer";
 }
 
 // Finds the id of the event a request is about
 type EventIdResolver = (ctx: {
   params: Record<string, string>;
+  query: Request["query"];
 }) => Promise<string> | string;
+
+//#region Where the event id comes from
+
+/** The event id is in the path (:id, or the named parameter). */
+export const eventFromParam =
+  (param = "id"): EventIdResolver =>
+  ({ params }) =>
+    params[param] ?? "";
+
+/** The event id is in the ?eventId= query parameter. */
+export const eventFromQuery: EventIdResolver = ({ query }) =>
+  typeof query.eventId === "string" ? query.eventId : "";
+
+/** The path has a team id; the event is the team's event. */
+export const eventFromTeam =
+  (param = "id"): EventIdResolver =>
+  async ({ params }) =>
+    (await teamModel.getTeamById(params[param] ?? "")).eventId;
+
+/** The path has an award id; the event is the award's event. */
+export const eventFromAward =
+  (param = "id"): EventIdResolver =>
+  async ({ params }) =>
+    (await awardModel.getAwardById(params[param] ?? "")).eventId;
+
+/** The path has an assignment id; the event is the assignment's event. */
+export const eventFromAssignment =
+  (param = "id"): EventIdResolver =>
+  async ({ params }) =>
+    (await judgingAssignmentModel.getJudgingAssignmentById(params[param] ?? ""))
+      .eventId;
+
+//#endregion
+
+function getContext<P>(req: Request<P>) {
+  return {
+    params: req.params as unknown as Record<string, string>,
+    query: req.query,
+  };
+}
 
 /**
  * Require at least this level in the event that getEventId points to.
@@ -45,8 +85,9 @@ export function authorizeVia(
   ) {
     try {
       if (!req.auth) throw new AppError(401, "unauthenticated", "Log in first");
-      const params = req.params as unknown as Record<string, string>;
-      const event = await eventModel.getEventById(await getEventId({ params }));
+      const event = await eventModel.getEventById(
+        await getEventId(getContext(req)),
+      );
       const level = getEventLevel(req.auth, event);
       if (!level || RANK[level] < RANK[required])
         throw new AppError(
@@ -63,38 +104,53 @@ export function authorizeVia(
 
 /** The event id is in the path (:id, or the named parameter). */
 export function authorize(required: EventLevel, param = "id") {
-  return authorizeVia(required, ({ params }) => params[param] ?? "");
+  return authorizeVia(required, eventFromParam(param));
 }
 
-/** The path has a team id; the event is the team's event. */
 export function authorizeByTeam(required: EventLevel, param = "id") {
-  return authorizeVia(
-    required,
-    async ({ params }) =>
-      (await teamModel.getTeamById(params[param] ?? "")).eventId,
-  );
+  return authorizeVia(required, eventFromTeam(param));
 }
 
-/** The path has an award id; the event is the award's event. */
 export function authorizeByAward(required: EventLevel, param = "id") {
-  return authorizeVia(
-    required,
-    async ({ params }) =>
-      (await awardModel.getAwardById(params[param] ?? "")).eventId,
-  );
+  return authorizeVia(required, eventFromAward(param));
 }
 
-/** The path has an assignment id; the event is the assignment's event. */
 export function authorizeByAssignment(required: EventLevel, param = "id") {
-  return authorizeVia(
-    required,
-    async ({ params }) =>
-      (
-        await judgingAssignmentModel.getJudgingAssignmentById(
-          params[param] ?? "",
-        )
-      ).eventId,
-  );
+  return authorizeVia(required, eventFromAssignment(param));
+}
+
+/**
+ * For the routes with :judgeId that a judge uses. Passes for an admin, for the
+ * judge whose login account is the caller, and for an organizer or owner of
+ * the event. Use after authenticate.
+ */
+export function authorizeJudge(getEventId: EventIdResolver) {
+  return async function <P>(
+    req: Request<P>,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      if (!req.auth) throw new AppError(401, "unauthenticated", "Log in first");
+      if (req.auth.role === "admin") return next();
+
+      const ctx = getContext(req);
+      const judge = await judgeModel.getJudgeById(ctx.params.judgeId ?? "");
+      if (judge.userId && judge.userId === req.auth.userId) return next();
+
+      const event = await eventModel.getEventById(await getEventId(ctx));
+      const level = getEventLevel(req.auth, event);
+      if (level && RANK[level] >= RANK.organizer) return next();
+
+      throw new AppError(
+        403,
+        "forbidden",
+        "Only this judge or an organizer of the event can do this",
+      );
+    } catch (err) {
+      handleError(err, res);
+    }
+  };
 }
 
 /**

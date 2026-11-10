@@ -5,22 +5,43 @@ import type { IdParams } from "../utils/types.js";
 import * as scoreModel from "../models/Score.js";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { authenticate } from "../middleware/authenticate.js";
-import { authorize, authorizeByAssignment } from "../middleware/authorize.js";
+import {
+  authorize,
+  authorizeByAssignment,
+  authorizeJudge,
+  eventFromQuery,
+  eventFromTeam,
+} from "../middleware/authorize.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-// Judge routes. The judge-side check comes with the judge accounts; for now
-// any logged-in user passes.
-router.get("/assignments/:judgeId", authenticate, getJudgeSession);
+// Judge routes. They pass for the judge themself, an admin, and an organizer or owner of the event.
+router.get(
+  "/assignments/:judgeId",
+  authenticate,
+  authorizeJudge(eventFromQuery),
+  getJudgeSession,
+);
 router.post(
   "/assignments/start/:judgeId/:teamId",
   authenticate,
+  authorizeJudge(eventFromTeam("teamId")),
   startAssignment,
 );
-router.post("/assignments/end/:judgeId/:teamId", authenticate, endAssignment);
-router.get("/assignments/one/:judgeId", authenticate, getJudgeTeams);
+router.post(
+  "/assignments/end/:judgeId/:teamId",
+  authenticate,
+  authorizeJudge(eventFromTeam("teamId")),
+  endAssignment,
+);
+router.get(
+  "/assignments/one/:judgeId",
+  authenticate,
+  authorizeJudge(eventFromQuery),
+  getJudgeTeams,
+);
 
 router.get(
   "/events/:id/assignments",

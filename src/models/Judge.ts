@@ -40,6 +40,8 @@ export interface Judge {
   // Years the judge took part before, e.g. [2023, 2024]. Defaults to []
   yearsParticipated: number[];
   notes?: string;
+  // The login account of this judge (a User id). Set when a code is issued.
+  userId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -210,6 +212,21 @@ export async function getJudgeById(id: string): Promise<WithId<Judge>> {
   }
 }
 
+/** The judge whose login account is this user, or null. */
+export async function getJudgeByUserId(
+  userId: string,
+): Promise<WithId<Judge> | null> {
+  if (!judgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  try {
+    return await judgesCollection.findOne({ userId });
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to retrieve the judge of a user",
+    );
+  }
+}
+
 /**
  * Get judges, with optional search (name, email or affiliation) and paging.
  */
@@ -339,6 +356,26 @@ export async function updateJudgeById(
     else throw new Error("Unknown error " + err);
   }
 }
+
+/** Link a judge to its login account. Not changeable through PATCH /judges/:id. */
+export async function setJudgeUserId(
+  id: string,
+  userId: string,
+): Promise<void> {
+  if (!judgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  try {
+    await judgesCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { userId, updatedAt: new Date() } },
+    );
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: unable to link the judge to its account",
+    );
+  }
+}
+
 //#endregion
 
 //#region Delete functions

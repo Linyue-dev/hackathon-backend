@@ -15,6 +15,8 @@ import * as judgeModel from "./Judge.js";
 import * as teamModel from "./Team.js";
 import * as awardModel from "./Award.js";
 import { assertOnlyAllowedFields, pickFields } from "../utils/validateUtils.js";
+import { generateJudgeCode } from "../utils/judgeCode.js";
+import * as userModel from "./User.js";
 
 let client: MongoClient;
 export let eventJudgesCollection: Collection<EventJudge>;
@@ -361,6 +363,125 @@ export async function removeJudgeFromEvent(
     if (err instanceof InvalidInputError) throw err;
     throw new DatabaseError("Database Error: unable to remove the judge");
   }
+}
+
+//#endregion
+
+//#region Judge accounts
+
+// One judge's new login. The code is the judge's password and is not stored.
+export interface JudgeCodeResult {
+  judgeId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  // The new code, shown only now
+  code: string;
+}
+
+/**
+ * Give the judges of an event a new code (the code is the password). If
+ * judgeIds is missing, every judge of the event gets one. A judge who already
+ * has a normal account keeps its own password and gets no code.
+ */
+export async function issueJudgeCodes(
+  eventId: string,
+  judgeIds: unknown,
+): Promise<JudgeCodeResult[]> {
+  if (!eventJudgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  if (
+    judgeIds !== undefined &&
+    (!Array.isArray(judgeIds) ||
+      judgeIds.length === 0 ||
+      judgeIds.some((id) => typeof id !== "string"))
+  )
+    throw new InvalidInputError(
+      "Invalid input: judgeIds must be a non-empty list of judge ids",
+    );
+
+  await eventModel.getEventById(eventId);
+
+  let ids: string[];
+  try {
+    const inEvent = (
+      await eventJudgesCollection.find({ eventId }).toArray()
+    ).map((e) => e.judgeId);
+    ids = judgeIds === undefined ? inEvent : [...new Set(judgeIds as string[])];
+    const missing = ids.filter((id) => !inEvent.includes(id));
+    if (missing.length > 0)
+      throw new InvalidInputError(
+        `Invalid input: the judge ${missing[0]} is not in the event`,
+      );
+  } catch (err) {
+    if (err instanceof InvalidInputError) throw err;
+    throw new DatabaseError("Database Error: unable to read the event judges");
+  }
+
+  const results: JudgeCodeResult[] = [];
+  for (const id of ids) {
+    const judge = await judgeModel.getJudgeById(id);
+    const code = generateJudgeCode();
+    const userId = await userModel.issueCodeAccount(judge, code);
+    if (judge.userId !== userId) await judgeModel.setJudgeUserId(id, userId);
+    results.push({
+      judgeId: id,
+      firstName: judge.firstName,
+      lastName: judge.lastName,
+      email: judge.email,
+      code,
+    });
+  }
+  return results;
+}
+
+/** Which judges of an event already have a login. Codes are not stored. */
+export async function getJudgeAccounts(eventId: string): Promise<
+  {
+    judgeId: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    hasAccount: boolean;
+  }[]
+> {
+  if (!eventJudgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  await eventModel.getEventById(eventId);
+
+  const eventJudges = await eventJudgesCollection.find({ eventId }).toArray();
+  const rows = [];
+  for (const ej of eventJudges) {
+    const judge = await judgeModel.getJudgeById(ej.judgeId);
+    rows.push({
+      judgeId: ej.judgeId,
+      firstName: judge.firstName,
+      lastName: judge.lastName,
+      email: judge.email,
+      hasAccount: !!judge.userId,
+    });
+  }
+  return rows;
+}
+
+/** The events a judge has been added to, for GET /auth/me. */
+export async function getEventsOfJudge(
+  judgeId: string,
+): Promise<{ eventId: string; name: string }[]> {
+  if (!eventJudgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  const links = await eventJudgesCollection.find({ judgeId }).toArray();
+  const events = [];
+  for (const link of links) {
+    try {
+      const event = await eventModel.getEventById(link.eventId);
+      events.push({ eventId: String(event._id), name: event.name });
+    } catch {
+      // The event was deleted
+    }
+  }
+  return events;
 }
 
 //#endregion

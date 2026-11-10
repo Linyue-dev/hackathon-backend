@@ -7,6 +7,8 @@ import { handleError } from "../utils/errorHandler.js";
 import { AppError } from "../errors/AppError.js";
 import { authenticate } from "../middleware/authenticate.js";
 import * as eventModel from "../models/Event.js";
+import * as judgeModel from "../models/Judge.js";
+import * as eventJudgeModel from "../models/EventJudge.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -153,22 +155,34 @@ async function login(req: Request, res: Response) {
 /**
  * GET /auth/me
  * The logged-in user and the events where the user has a role.
- * Returns 200 with { user, events }.
+ * Returns 200 with { user, judgeId, events }.
  * user: id, name, email, role, isLimited, status.
- * events: [{ eventId, name, roles }], roles is "owner" and/or "organizer".
- * Judge and mentor events are not included yet.
+ * judgeId: the id of the judge this account belongs to, or null.
+ * events: [{ eventId, name, roles }], roles holds "owner", "organizer" and/or
+ * "judge". Mentor events are not included yet.
  * Errors: 401 unauthenticated or invalid_token.
  */
 async function me(req: Request, res: Response) {
   try {
-    const user = await userModel.getUserById(req.auth!.userId);
-    const events = await eventModel.getEventsOfUser(req.auth!.userId);
-    res.json({ user, events });
+    const userId = req.auth!.userId;
+    const user = await userModel.getUserById(userId);
+    const events = await eventModel.getEventsOfUser(userId);
+    const judge = await judgeModel.getJudgeByUserId(userId);
+    if (judge) {
+      const judgeEvents = await eventJudgeModel.getEventsOfJudge(
+        String(judge._id),
+      );
+      for (const e of judgeEvents) {
+        const found = events.find((x) => x.eventId === e.eventId);
+        if (found) found.roles.push("judge");
+        else events.push({ ...e, roles: ["judge"] });
+      }
+    }
+    res.json({ user, judgeId: judge ? String(judge._id) : null, events });
   } catch (err) {
     handleError(err, res);
   }
 }
-
 /**
  * POST /auth/logout
  * Tokens are not kept on the server: the client forgets the token. Returns 204.
