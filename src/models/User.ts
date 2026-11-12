@@ -20,6 +20,7 @@ import {
 } from "../utils/validateUtils.js";
 import { Pagination } from "../utils/pagination.js";
 import { AppError } from "../errors/AppError.js";
+import { randomBytes } from "crypto";
 
 let client: MongoClient;
 export let usersCollection: Collection<User>;
@@ -303,11 +304,13 @@ const LOCK_MINUTES = 15;
  * Check an email and password. After 5 wrong passwords in a row the account is
  * locked for 15 minutes. The same error is used for an unknown email and a
  * wrong password, so nobody can find out which emails have accounts.
+ * A judge account (isLimited) logs in with the code of one of its events instead of a password.
  */
 export async function loginUser(
   email: unknown,
   password: unknown,
-): Promise<PublicUser> {
+  findEventByCode: (userId: string, code: string) => Promise<string | null>,
+): Promise<{ user: PublicUser; eventId?: string }> {
   if (
     typeof email !== "string" ||
     !email ||
@@ -343,7 +346,18 @@ export async function loginUser(
       );
     }
 
-    if (!(await bcrypt.compare(password, user.passwordHash))) {
+    // A judge account has no password: the code of an event is checked instead
+    let eventId: string | undefined;
+    let passwordOk: boolean;
+    if (user.isLimited) {
+      eventId =
+        (await findEventByCode(String(user._id), password)) ?? undefined;
+      passwordOk = eventId !== undefined;
+    } else {
+      passwordOk = await bcrypt.compare(password, user.passwordHash);
+    }
+
+    if (!passwordOk) {
       const updated = await usersCollection.findOneAndUpdate(
         { _id: user._id },
         { $inc: { failedLoginAttempts: 1 } },
@@ -379,7 +393,7 @@ export async function loginUser(
         $unset: { lockedUntil: "" },
       },
     );
-    return toPublicUser(user);
+    return { user: toPublicUser(user), eventId };
   } catch (err: unknown) {
     if (err instanceof AppError || err instanceof InvalidInputError) throw err;
     throw new DatabaseError(
@@ -409,20 +423,17 @@ export async function activateUser(id: string): Promise<PublicUser> {
 }
 
 /**
- * Give a judge a login: the code becomes the password of a judge account
- * (isLimited). The account is created if it does not exist, and any login lock
- * is cleared. Returns the user id.
- * An email that belongs to a normal account is refused.
+ * Make sure a judge has a login account and return its id and whether the judge
+ * signs in with a code. A new judge account is limited (isLimited) and has no
+ * usable password: it signs in with the code of an event. A normal account is
+ * only linked: the person signs in with their own password (usesCode false).
  */
-export async function issueCodeAccount(
-  person: {
-    firstName: string;
-    lastName: string;
-    email: string;
-    phone?: string;
-  },
-  code: string,
-): Promise<string> {
+export async function ensureJudgeAccount(person: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+}): Promise<{ userId: string; usesCode: boolean }> {
   if (!usersCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
@@ -430,34 +441,25 @@ export async function issueCodeAccount(
     const email = normalizeEmail(person.email);
     const existing = await usersCollection.findOne({ email });
     if (existing && !existing.isLimited)
-      throw new InvalidInputError(
-        `The email ${person.email} already belongs to a normal account`,
-      );
-
-    const passwordHash = await bcrypt.hash(code, SALT_ROUNDS);
-    const now = new Date();
+      return { userId: String(existing._id), usesCode: false };
 
     if (existing) {
       await usersCollection.updateOne(
         { _id: existing._id },
-        {
-          $set: {
-            passwordHash,
-            status: "active",
-            failedLoginAttempts: 0,
-            updatedAt: now,
-          },
-          $unset: { lockedUntil: "" },
-        },
+        { $set: { failedLoginAttempts: 0 }, $unset: { lockedUntil: "" } },
       );
-      return String(existing._id);
+      return { userId: String(existing._id), usesCode: true };
     }
 
+    const now = new Date();
     const result = await usersCollection.insertOne({
       firstName: person.firstName,
       lastName: person.lastName,
       email,
-      passwordHash,
+      passwordHash: await bcrypt.hash(
+        randomBytes(24).toString("hex"),
+        SALT_ROUNDS,
+      ),
       phone: person.phone,
       role: "viewer",
       status: "active",
@@ -465,7 +467,8 @@ export async function issueCodeAccount(
       createdAt: now,
       updatedAt: now,
     });
-    return String(result.insertedId);
+
+    return { userId: String(result.insertedId), usesCode: true };
   } catch (err: unknown) {
     if (err instanceof InvalidInputError) throw err;
     throw new DatabaseError(

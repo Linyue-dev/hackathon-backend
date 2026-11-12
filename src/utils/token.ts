@@ -9,26 +9,33 @@ function getSecret(): string {
 }
 
 /**
- * Sign a login token. It holds only the user id: the role and status are read
- * from the database on every request, so a demoted or deleted user loses
- * access at once.
+ * Sign a login token. It holds the user id, and for a judge the id of the event
+ * whose code was used. The role and status are read from the database on every
+ * request, so a demoted or deleted user loses access at once.
  */
-export function signToken(userId: string): string {
-  return jwt.sign({ userId }, getSecret(), {
+export function signToken(userId: string, eventId?: string): string {
+  return jwt.sign({ userId, eventId }, getSecret(), {
     expiresIn: "7d",
     algorithm: "HS256",
   });
 }
 
 /**
- * Check a login token and return the user id inside it.
- * Throws 401 when the token is missing its id, wrong, or expired.
+ * Check a login token and return the user id (and the event id, for a judge)
+ * inside it. Throws 401 when the token is missing its id, wrong, or expired.
  */
-export function verifyToken(token: string): string {
+export function verifyToken(token: string): {
+  userId: string;
+  eventId?: string;
+} {
   try {
     const payload = jwt.verify(token, getSecret(), { algorithms: ["HS256"] });
     if (typeof payload === "object" && typeof payload.userId === "string")
-      return payload.userId;
+      return {
+        userId: payload.userId,
+        eventId:
+          typeof payload.eventId === "string" ? payload.eventId : undefined,
+      };
   } catch {
     // fall through to the error below
   }

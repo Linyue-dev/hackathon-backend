@@ -9,7 +9,12 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      auth?: { userId: string; role: "admin" | "viewer"; isLimited: boolean };
+      auth?: {
+        userId: string;
+        role: "admin" | "viewer";
+        isLimited: boolean;
+        eventId?: string;
+      };
     }
   }
 }
@@ -29,7 +34,7 @@ export async function authenticate<P>(
     if (!header?.startsWith("Bearer "))
       throw new AppError(401, "unauthenticated", "Log in first");
 
-    const userId = verifyToken(header.slice(7));
+    const { userId, eventId } = verifyToken(header.slice(7));
     let user;
     try {
       user = await userModel.getUserById(userId);
@@ -47,6 +52,7 @@ export async function authenticate<P>(
       userId: String(user._id),
       role: user.role,
       isLimited: !!user.isLimited,
+      eventId,
     };
     next();
   } catch (err) {

@@ -12,13 +12,17 @@ const RANK: Record<EventLevel, number> = { viewer: 1, organizer: 2, owner: 3 };
 
 /**
  * What a user can do inside one event. A global admin has the owner rights in
- * every event. Anyone else who is logged in is a viewer: they can read but not change.
+ * every event. A judge / mentor code account is a viewer in the event its code
+ * belongs to and has no access to other events. Anyone else who is logged in is
+ * a viewer unless they are an owner or organizer of the event.
  */
 export function getEventLevel(
-  auth: { userId: string; role: string; isLimited: boolean },
-  event: { owners?: string[]; organizers?: string[] },
+  auth: { userId: string; role: string; isLimited: boolean; eventId?: string },
+  event: { _id?: unknown; owners?: string[]; organizers?: string[] },
 ): EventLevel | null {
   if (auth.role === "admin") return "owner";
+  if (auth.isLimited)
+    return auth.eventId && String(event._id) === auth.eventId ? "viewer" : null;
   if (event.owners?.includes(auth.userId)) return "owner";
   if (event.organizers?.includes(auth.userId)) return "organizer";
   return "viewer";
@@ -120,9 +124,9 @@ export function authorizeByAssignment(required: EventLevel, param = "id") {
 }
 
 /**
- * For the routes with :judgeId that a judge uses. Passes for an admin, for the
- * judge whose login account is the caller, and for an organizer or owner of
- * the event. Use after authenticate.
+ * For the routes with :judgeId that a judge uses. An admin, an organizer or an
+ * owner of the event can always act. The judge whose login account is the
+ * caller can act until judging ends. Use after authenticate.
  */
 export function authorizeJudge(getEventId: EventIdResolver) {
   return async function <P>(
@@ -136,11 +140,22 @@ export function authorizeJudge(getEventId: EventIdResolver) {
 
       const ctx = getContext(req);
       const judge = await judgeModel.getJudgeById(ctx.params.judgeId ?? "");
-      if (judge.userId && judge.userId === req.auth.userId) return next();
-
       const event = await eventModel.getEventById(await getEventId(ctx));
       const level = getEventLevel(req.auth, event);
+
+      // An organizer or owner of the event can always act.
       if (level && RANK[level] >= RANK.organizer) return next();
+
+      // The judge themself can act until judging ends.
+      if (judge.userId && judge.userId === req.auth.userId && level) {
+        if (event.judgingEndedAt)
+          throw new AppError(
+            403,
+            "code_expired",
+            "Judging has ended for this event",
+          );
+        return next();
+      }
 
       throw new AppError(
         403,

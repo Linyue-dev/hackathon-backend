@@ -17,6 +17,8 @@ import * as awardModel from "./Award.js";
 import { assertOnlyAllowedFields, pickFields } from "../utils/validateUtils.js";
 import { generateJudgeCode } from "../utils/judgeCode.js";
 import * as userModel from "./User.js";
+import bcrypt from "bcrypt";
+import { AppError } from "../errors/AppError.js";
 
 let client: MongoClient;
 export let eventJudgesCollection: Collection<EventJudge>;
@@ -38,6 +40,8 @@ export interface EventJudge {
   awardIds: string[]; // the awards of this event the judge will score
   conflicts: Conflict[]; // teams the judge must not be assigned to
   notes?: string;
+  // Hash of the judge's login code for this event. Never returned to clients.
+  codeHash?: string;
   createdAt: Date;
 }
 
@@ -186,7 +190,7 @@ export async function getAllEventJudges(
   try {
     const [eventJudges, total] = await Promise.all([
       eventJudgesCollection
-        .find(query)
+        .find(query, { projection: { codeHash: 0 } })
         .sort({ createdAt: 1, _id: 1 }) // stable order for paging
         .skip(pagination.skip)
         .limit(pagination.limit)
@@ -213,7 +217,10 @@ export async function getEventJudge(
     throw new DatabaseError("Database Collection object not initialized");
 
   try {
-    const result = await eventJudgesCollection.findOne({ eventId, judgeId });
+    const result = await eventJudgesCollection.findOne(
+      { eventId, judgeId },
+      { projection: { codeHash: 0 } },
+    );
     if (!result) throw new InvalidInputError("This judge is not in the event");
     return result;
   } catch (err) {
@@ -272,7 +279,7 @@ export async function updateEventJudge(
     const saved = await eventJudgesCollection.findOneAndUpdate(
       { eventId, judgeId },
       { $set: cleanUpdates },
-      { returnDocument: "after" },
+      { returnDocument: "after", projection: { codeHash: 0 } },
     );
     if (!saved) throw new Error("Judge not found");
     return saved;
@@ -326,7 +333,7 @@ export async function setConflicts(
     const saved = await eventJudgesCollection.findOneAndUpdate(
       { eventId, judgeId },
       { $set: { conflicts } },
-      { returnDocument: "after" },
+      { returnDocument: "after", projection: { codeHash: 0 } },
     );
     if (!saved) throw new Error("Judge not found");
     return saved;
@@ -369,20 +376,22 @@ export async function removeJudgeFromEvent(
 
 //#region Judge accounts
 
-// One judge's new login. The code is the judge's password and is not stored.
+// One judge's new code for this event. Only a hash of the code is stored.
 export interface JudgeCodeResult {
   judgeId: string;
   firstName: string;
   lastName: string;
   email: string;
-  // The new code, shown only now
-  code: string;
+  // The new code, shown only now. null when the judge signs in with the
+  // password of their own account.
+  code: string | null;
 }
 
 /**
- * Give the judges of an event a new code (the code is the password). If
- * judgeIds is missing, every judge of the event gets one. A judge who already
- * has a normal account keeps its own password and gets no code.
+ * Give the judges of an event a new code for this event. If judgeIds is
+ * missing, every judge of the event gets one. The old code of this event stops
+ * working; the codes of the judge's other events are not changed.
+ * A judge who already has a normal account gets no code and keeps their own password.
  */
 export async function issueJudgeCodes(
   eventId: string,
@@ -422,9 +431,18 @@ export async function issueJudgeCodes(
   const results: JudgeCodeResult[] = [];
   for (const id of ids) {
     const judge = await judgeModel.getJudgeById(id);
-    const code = generateJudgeCode();
-    const userId = await userModel.issueCodeAccount(judge, code);
+
+    const { userId, usesCode } = await userModel.ensureJudgeAccount(judge);
     if (judge.userId !== userId) await judgeModel.setJudgeUserId(id, userId);
+    let code: string | null = null;
+    if (usesCode) {
+      code = generateJudgeCode();
+      await eventJudgesCollection.updateOne(
+        { eventId, judgeId: id },
+        { $set: { codeHash: await bcrypt.hash(code, 10) } },
+      );
+    }
+
     results.push({
       judgeId: id,
       firstName: judge.firstName,
@@ -528,6 +546,44 @@ export async function getEventsOfJudge(
     }
   }
   return events;
+}
+
+/**
+ * Find which event a judge login code belongs to: returns the event id, or
+ * null when the code matches none of the judge's events. Throws 403
+ * code_expired when judging has ended in the event of the code.
+ */
+export async function findEventByCode(
+  userId: string,
+  code: string,
+): Promise<string | null> {
+  if (!eventJudgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  const judge = await judgeModel.getJudgeByUserId(userId);
+  if (!judge) return null;
+
+  const links = await eventJudgesCollection
+    .find({ judgeId: String(judge._id), codeHash: { $exists: true } })
+    .toArray();
+
+  for (const link of links) {
+    if (!link.codeHash || !(await bcrypt.compare(code, link.codeHash)))
+      continue;
+    try {
+      const event = await eventModel.getEventById(link.eventId);
+      if (event.judgingEndedAt)
+        throw new AppError(
+          403,
+          "code_expired",
+          "This code expired when judging ended",
+        );
+    } catch (err) {
+      if (err instanceof InvalidInputError) continue; // The event was deleted
+      throw err;
+    }
+    return link.eventId;
+  }
+  return null;
 }
 
 //#endregion

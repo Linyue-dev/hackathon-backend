@@ -137,16 +137,21 @@ async function sendCode(email: string, code: string) {
 
 /**
  * POST /auth/login
- * Body: email, password. A judge / mentor code account uses its code as the password.
+ * Body: email, password. A judge logs in with the code of an event as the password.
  * Returns 200 with { token, user }. Send the token as "Authorization: Bearer <token>".
- * Errors: 400 invalid input. 401 invalid_credentials. 403 email_not_verified or
- * account_declined. 429 account_locked - 5 wrong passwords lock it for 15 minutes.
+ * Errors: 400 invalid input. 401 invalid_credentials. 403 email_not_verified,
+ * account_declined or code_expired - judging has ended in the event of the code.
+ * 429 account_locked - 5 wrong passwords lock it for 15 minutes.
  */
 async function login(req: Request, res: Response) {
   try {
     const { email, password } = req.body ?? {};
-    const user = await userModel.loginUser(email, password);
-    res.json({ token: signToken(String(user._id)), user });
+    const { user, eventId } = await userModel.loginUser(
+      email,
+      password,
+      eventJudgeModel.findEventByCode,
+    );
+    res.json({ token: signToken(String(user._id), eventId), user });
   } catch (err) {
     handleError(err, res);
   }

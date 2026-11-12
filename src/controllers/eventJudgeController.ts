@@ -262,9 +262,9 @@ async function getJudgeCodes(req: Request<IdParams>, res: Response) {
  * password: an earlier code stops working. :id is the event id.
  * Body (optional): { judgeIds: [...] }. Without it, every judge of the event
  * gets a new code.
- * A judge who already has a normal account keeps its own password and gets
- * code null. A judge without an account gets one.
- * Returns 200 with a list of { judgeId, firstName, lastName, email, code, account }.
+ * A judge who already has a normal account gets code null and keeps their own
+ * password: they sign in with it.
+ * Returns 200 with a list of { judgeId, firstName, lastName, email, code }.
  * The code is in this response only; it is stored as a hash and cannot be read later.
  * Errors: 400 invalid judgeIds, a judge that is not in the event, or event not
  * found. 401 unauthenticated. 403 forbidden.
