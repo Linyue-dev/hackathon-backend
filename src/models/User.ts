@@ -41,6 +41,8 @@ export interface User {
   isLimited: boolean;
   failedLoginAttempts?: number;
   lockedUntil?: Date;
+  // Set when the user logs in
+  lastLoginAt?: Date;
 }
 
 // What we return to callers: never the password hash or the login lock data.
@@ -372,7 +374,10 @@ export async function loginUser(
 
     await usersCollection.updateOne(
       { _id: user._id },
-      { $set: { failedLoginAttempts: 0 }, $unset: { lockedUntil: "" } },
+      {
+        $set: { failedLoginAttempts: 0, lastLoginAt: new Date() },
+        $unset: { lockedUntil: "" },
+      },
     );
     return toPublicUser(user);
   } catch (err: unknown) {

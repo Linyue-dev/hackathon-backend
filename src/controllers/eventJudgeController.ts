@@ -53,11 +53,19 @@ router.delete(
 );
 
 router.get(
+  "/events/:id/all-judges",
+  authenticate,
+  authorize("organizer"),
+  getAllJudges,
+);
+
+router.get(
   "/events/:id/judge-codes",
   authenticate,
   authorize("organizer"),
   getJudgeCodes,
 );
+
 router.post(
   "/events/:id/judge-code/regenerate",
   authenticate,
@@ -269,6 +277,24 @@ async function regenerateJudgeCodes(req: Request<IdParams>, res: Response) {
     );
     res.set("Cache-Control", "no-store");
     res.json(result);
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * GET /events/:id/all-judges
+ * Every judge of the event with all information. :id is the event id.
+ * Returns 200 with a plain array of { judgeId, firstName, lastName, email, phone,
+ * affiliation, isScience, proficiency, yearsParticipated, type, awardIds,
+ * conflicts, notes, hasLoggedIn }.
+ * hasLoggedIn: true when the judge has logged in at least once. Judges who
+ * logged in before this was recorded show false until their next login.
+ * Errors: 400 if the event does not exist. 401 unauthenticated. 403 forbidden.
+ */
+async function getAllJudges(req: Request<IdParams>, res: Response) {
+  try {
+    res.json(await eventJudgeModel.getAllJudgesInfo(req.params.id));
   } catch (err) {
     handleError(err, res);
   }

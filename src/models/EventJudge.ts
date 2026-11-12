@@ -465,6 +465,52 @@ export async function getJudgeAccounts(eventId: string): Promise<
   return rows;
 }
 
+/**
+ * All judges of an event: the profile, the settings in this event and whether
+ * the judge has logged in at least once.
+ */
+export async function getAllJudgesInfo(eventId: string) {
+  if (!eventJudgesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  await eventModel.getEventById(eventId);
+
+  const eventJudges = await eventJudgesCollection
+    .find({ eventId })
+    .sort({ createdAt: 1, _id: 1 })
+    .toArray();
+
+  const rows = [];
+  for (const ej of eventJudges) {
+    const judge = await judgeModel.getJudgeById(ej.judgeId);
+    let hasLoggedIn = false;
+    if (judge.userId) {
+      try {
+        const user = await userModel.getUserById(judge.userId);
+        hasLoggedIn = !!user.lastLoginAt;
+      } catch {
+        // The account was deleted
+      }
+    }
+    rows.push({
+      judgeId: ej.judgeId,
+      firstName: judge.firstName,
+      lastName: judge.lastName,
+      email: judge.email,
+      phone: judge.phone,
+      affiliation: judge.affiliation,
+      isScience: judge.isScience,
+      proficiency: judge.proficiency,
+      yearsParticipated: judge.yearsParticipated,
+      type: ej.type,
+      awardIds: ej.awardIds,
+      conflicts: ej.conflicts,
+      notes: ej.notes,
+      hasLoggedIn,
+    });
+  }
+  return rows;
+}
+
 /** The events a judge has been added to, for GET /auth/me. */
 export async function getEventsOfJudge(
   judgeId: string,
