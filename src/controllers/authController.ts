@@ -9,6 +9,7 @@ import { authenticate } from "../middleware/authenticate.js";
 import * as eventModel from "../models/Event.js";
 import * as judgeModel from "../models/Judge.js";
 import * as eventJudgeModel from "../models/EventJudge.js";
+import { randomUUID } from "node:crypto";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -17,6 +18,8 @@ export const routeRoot = "/api/v1";
 router.post("/auth/signup", signup);
 router.post("/auth/verify", verify);
 router.post("/auth/resend", resend);
+router.post("/auth/password/forgot", forgotPassword);
+router.post("/auth/password/reset", resetPassword);
 
 router.post("/auth/login", login);
 router.get("/auth/me", authenticate, me);
@@ -196,4 +199,84 @@ function logout(_req: Request, res: Response) {
   res.status(204).end();
 }
 
+/**
+ * POST /auth/password/forgot
+ * Email a 6-digit code to reset the password.
+ * Body: email.
+ * Always returns 200 with { challengeId, expiresInSeconds }, also for an email
+ * that has no account, so nobody can find out which emails have accounts. The
+ * email is sent only to an active account that has a password (a judge who
+ * signs in with a code has none).
+ * Errors: 400 invalid input. 502 email_failed.
+ */
+async function forgotPassword(req: Request, res: Response) {
+  try {
+    const userId = await userModel.findResettableUserId(req.body?.email);
+    let challengeId: string = randomUUID();
+    if (userId) {
+      const created = await verificationCodeModel.createCode(
+        userId,
+        "password-reset",
+      );
+      const user = await userModel.getUserById(userId);
+      await sendResetCode(user.email, created.code);
+      challengeId = created.challengeId;
+    }
+    res.json({
+      challengeId,
+      expiresInSeconds: verificationCodeModel.CODE_LIFETIME_SECONDS,
+    });
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * POST /auth/password/reset
+ * Set a new password with the code from the email.
+ * Body: challengeId (from forgot), code (6 digits), newPassword.
+ * A code allows 3 tries, works once and expires after 5 minutes. The login
+ * lock of the account is cleared. The user is not logged in: log in with the
+ * new password.
+ * Returns 200 with { message }.
+ * Errors: 400 invalid input or a password that is too weak.
+ * 401 invalid_code - wrong, unknown or used code. 410 code_expired.
+ * 429 too_many_attempts.
+ */
+async function resetPassword(req: Request, res: Response) {
+  try {
+    const { challengeId, code, newPassword } = req.body ?? {};
+    // Checked first, so a weak password does not use up the code
+    userModel.assertValidPassword(newPassword);
+    const userId = await verificationCodeModel.verifyCode(
+      challengeId,
+      code,
+      "password-reset",
+    );
+    await userModel.setPassword(userId, newPassword);
+    res.json({ message: "Password changed. Log in with the new password" });
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+// ============ Helpers ============
+async function sendResetCode(email: string, code: string) {
+  const minutes = verificationCodeModel.CODE_LIFETIME_SECONDS / 60;
+  try {
+    await sendMail({
+      recipientEmail: email,
+      subject: "Your JacHacks Judging password reset code",
+      text: `Your password reset code is ${code}. It expires in ${minutes} minutes.\n\nIf you did not ask for this, you can ignore this email.`,
+      html: `<p>Your password reset code is:</p><h1 style="letter-spacing: 5px;">${code}</h1><p>It expires in ${minutes} minutes.</p><p>If you did not ask for this, you can ignore this email.</p>`,
+    });
+  } catch (err) {
+    console.error("Unable to send the password reset email:", err);
+    throw new AppError(
+      502,
+      "email_failed",
+      "The email could not be sent. Try again later",
+    );
+  }
+}
 export default router;

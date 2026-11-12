@@ -423,6 +423,67 @@ export async function activateUser(id: string): Promise<PublicUser> {
 }
 
 /**
+ * The id of the account that can reset its password with this email, or null:
+ * an unknown email, an account that is not active, or a judge code account
+ * (isLimited), which has no password.
+ */
+export async function findResettableUserId(
+  email: unknown,
+): Promise<string | null> {
+  if (typeof email !== "string" || !email)
+    throw new InvalidInputError("Invalid input: email is required");
+  if (!usersCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  try {
+    const user = await usersCollection.findOne({
+      email: normalizeEmail(email),
+    });
+    if (!user || user.status !== "active" || user.isLimited) return null;
+    return String(user._id);
+  } catch (err: unknown) {
+    throw new DatabaseError("Database error: unable to look up the account");
+  }
+}
+
+/** Throws InvalidInputError when the password is missing or too weak. */
+export function assertValidPassword(
+  password: unknown,
+): asserts password is string {
+  if (typeof password !== "string" || !password)
+    throw new InvalidInputError("Invalid input: newPassword is required");
+  const passwordError = getPasswordError(password);
+  if (passwordError) throw new InvalidInputError(passwordError);
+}
+
+/**
+ * Set a new password, after a password-reset code was accepted. The login lock
+ * is cleared too.
+ */
+export async function setPassword(
+  id: string,
+  newPassword: unknown,
+): Promise<void> {
+  assertValidPassword(newPassword);
+  const user = await findUserById(id);
+  try {
+    await usersCollection.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          passwordHash: await bcrypt.hash(newPassword, SALT_ROUNDS),
+          failedLoginAttempts: 0,
+          updatedAt: new Date(),
+        },
+        $unset: { lockedUntil: "" },
+      },
+    );
+  } catch (err: unknown) {
+    throw new DatabaseError("Database error: unable to change the password");
+  }
+}
+
+/**
  * Make sure a judge has a login account and return its id and whether the judge
  * signs in with a code. A new judge account is limited (isLimited) and has no
  * usable password: it signs in with the code of an event. A normal account is
