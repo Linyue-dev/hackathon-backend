@@ -7,6 +7,8 @@ import { parsePagination } from "../utils/pagination.js";
 import * as judgingAssignmentModel from "./../models/JudgingAssignment.js";
 import { authenticate } from "../middleware/authenticate.js";
 import { authorize } from "../middleware/authorize.js";
+import * as eventModel from "../models/Event.js";
+import { sendMail } from "../utils/mailService.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -261,23 +263,36 @@ async function getJudgeCodes(req: Request<IdParams>, res: Response) {
 
 /**
  * POST /events/:id/judge-code/regenerate
- * Issue a new code for the judges of the event. The code is the judge's
- * password: an earlier code stops working. :id is the event id.
+ * Issue a new code for the judges of the event and email it to each judge.
+ * The code is the judge's password: an earlier code stops working. :id is the
+ * event id.
  * Body (optional): { judgeIds: [...] }. Without it, every judge of the event
  * gets a new code.
- * A judge who already has a normal account gets code null and keeps their own
- * password: they sign in with it.
- * Returns 200 with a list of { judgeId, firstName, lastName, email, code }.
+ * A judge who already has a normal account gets code null: they keep their own
+ * password and sign in with it. They are emailed that they were added to the
+ * event.
+ * Returns 200 with a list of
+ * { judgeId, firstName, lastName, email, code, emailSent }.
+ * emailSent is false when the email could not be sent; a code is still in this
+ * response, so it can be given to the judge by hand.
  * The code is in this response only; it is stored as a hash and cannot be read later.
  * Errors: 400 invalid judgeIds, a judge that is not in the event, or event not
  * found. 401 unauthenticated. 403 forbidden.
  */
 async function regenerateJudgeCodes(req: Request<IdParams>, res: Response) {
   try {
-    const result = await eventJudgeModel.issueJudgeCodes(
+    const event = await eventModel.getEventById(req.params.id);
+    const issued = await eventJudgeModel.issueJudgeCodes(
       req.params.id,
       req.body?.judgeIds,
     );
+    const result = [];
+    for (const row of issued) {
+      const emailSent = row.code
+        ? await sendJudgeCode(event.name, row.email, row.code)
+        : await sendJudgeNotice(event.name, row.email);
+      result.push({ ...row, emailSent });
+    }
     res.set("Cache-Control", "no-store");
     res.json(result);
   } catch (err) {
@@ -303,4 +318,51 @@ async function getAllJudges(req: Request<IdParams>, res: Response) {
   }
 }
 
+// ============ Helpers ============
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/** Email the code to the judge. Returns false when the email fails. */
+async function sendJudgeCode(
+  eventName: string,
+  email: string,
+  code: string,
+): Promise<boolean> {
+  try {
+    await sendMail({
+      recipientEmail: email,
+      subject: `Your judge code for ${eventName}`,
+      text: `You are a judge in ${eventName}.\n\nLog in with this email and this code as the password:\n${code}\n\nThe code works only for this event and stops working when judging ends. A new code replaces this one.`,
+      html: `<p>You are a judge in <b>${escapeHtml(eventName)}</b>.</p><p>Log in with this email and this code as the password:</p><h1 style="letter-spacing: 3px;">${code}</h1><p>The code works only for this event and stops working when judging ends. A new code replaces this one.</p>`,
+    });
+    return true;
+  } catch (err) {
+    console.error("Unable to send the judge code email:", err);
+    return false;
+  }
+}
+
+/** Email a judge with a normal account that they were added to the event. */
+async function sendJudgeNotice(
+  eventName: string,
+  email: string,
+): Promise<boolean> {
+  try {
+    await sendMail({
+      recipientEmail: email,
+      subject: `You are a judge in ${eventName}`,
+      text: `You were added as a judge in ${eventName}.\n\nLog in with your own account: your email and your password.`,
+      html: `<p>You were added as a judge in <b>${escapeHtml(eventName)}</b>.</p><p>Log in with your own account: your email and your password.</p>`,
+    });
+    return true;
+  } catch (err) {
+    console.error("Unable to send the judge notice email:", err);
+    return false;
+  }
+}
 export default router;
