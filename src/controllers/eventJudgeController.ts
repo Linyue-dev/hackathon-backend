@@ -243,9 +243,12 @@ async function removeJudge(req: Request<EventJudgeParams>, res: Response) {
 /**
  * GET /events/:id/judge-codes
  * The login state of every judge of the event. :id is the event id.
- * Returns 200 with a plain array of { judgeId, firstName, lastName, email, hasAccount }.
- * hasAccount: true when the judge already has a login. Codes are not stored, so
- * they cannot be shown again: issue a new one with POST .../judge-code/regenerate.
+ * Returns 200 with a plain array of { judgeId, firstName, lastName, email,
+ * hasAccount, hasCode }.
+ * hasCode: a code was issued for this event. hasAccount: the judge is linked to
+ * a user account; with hasCode false it means the judge uses their own
+ * password. Codes are not stored, so they cannot be shown again: issue a new
+ * one with POST .../judge-code/regenerate.
  * Errors: 400 if the event does not exist. 401 unauthenticated. 403 forbidden.
  */
 async function getJudgeCodes(req: Request<IdParams>, res: Response) {

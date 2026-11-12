@@ -454,7 +454,11 @@ export async function issueJudgeCodes(
   return results;
 }
 
-/** Which judges of an event already have a login. Codes are not stored. */
+/**
+ * Which judges of an event have a login. hasCode: a code was issued for this
+ * event. hasAccount: the judge is linked to a user account. A judge with a
+ * normal account has hasAccount true and hasCode false. Codes are not stored.
+ */
 export async function getJudgeAccounts(eventId: string): Promise<
   {
     judgeId: string;
@@ -462,6 +466,7 @@ export async function getJudgeAccounts(eventId: string): Promise<
     lastName: string;
     email: string;
     hasAccount: boolean;
+    hasCode: boolean;
   }[]
 > {
   if (!eventJudgesCollection)
@@ -478,6 +483,7 @@ export async function getJudgeAccounts(eventId: string): Promise<
       lastName: judge.lastName,
       email: judge.email,
       hasAccount: !!judge.userId,
+      hasCode: !!ej.codeHash,
     });
   }
   return rows;
