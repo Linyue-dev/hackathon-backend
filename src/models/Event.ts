@@ -154,15 +154,14 @@ export async function initialize(
 
 /**
  * Add a new event to the database. status defaults to "draft".
+ * The event starts with no owners or organizers; an admin or an owner adds
+ * them with addEventMember.
  * Dates are checked (the end must not be before the start), and address and
  * rooms are validated.
  * Note: unlike updateEventById, this does not refuse the judging statuses yet,
  * so create events as "draft" or "in-progress".
  */
-export async function addEvent(
-  input: NewEventInput,
-  creatorId: string,
-): Promise<Event> {
+export async function addEvent(input: NewEventInput): Promise<Event> {
   if (!eventsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
@@ -207,10 +206,10 @@ export async function addEvent(
     venue,
     startDatetime: start,
     endDatetime: end,
+    owners: [],
+    organizers: [],
     createdAt: now,
     updatedAt: now,
-    owners: [creatorId],
-    organizers: [],
   };
 
   try {

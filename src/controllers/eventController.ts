@@ -5,14 +5,18 @@ import type { IdParams } from "../utils/types.js";
 import { parsePagination } from "../utils/pagination.js";
 import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
 import * as resultModel from "../models/Result.js";
-import { authenticate, requireNotLimited } from "../middleware/authenticate.js";
+import {
+  authenticate,
+  requireAdmin,
+  requireNotLimited,
+} from "../middleware/authenticate.js";
 import { authorize } from "../middleware/authorize.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
 
 // ============ Routes ============
-router.post("/events", authenticate, requireNotLimited, createEvent);
+router.post("/events", authenticate, requireAdmin, createEvent);
 router.get("/events", authenticate, requireNotLimited, getEvents);
 router.get("/events/:id", authenticate, authorize("viewer"), getEventById);
 router.patch("/events/:id", authenticate, authorize("owner"), updateEvent);
@@ -78,8 +82,8 @@ router.delete(
  * judgingStartedAt, judgingEndedAt and resultsPublishedAt are set by the
  * server and cannot be sent.
  * Returns 201 with the event.
- * Any account that is not a judge / mentor account can create an event; the
- * creator becomes its owner.
+ * Only an admin can create an event. It starts without owners: an admin names
+ * them with POST /events/:id/owners.
  * Errors: 400 invalid input. 401 unauthenticated. 403 forbidden.
  */
 async function createEvent(req: Request, res: Response) {
@@ -97,22 +101,19 @@ async function createEvent(req: Request, res: Response) {
       startDatetime,
       endDatetime,
     } = req.body ?? {};
-    const event = await eventModel.addEvent(
-      {
-        name,
-        status,
-        theme,
-        description,
-        address,
-        rooms,
-        arrivalNotes,
-        logoUrl,
-        venue,
-        startDatetime,
-        endDatetime,
-      },
-      req.auth!.userId,
-    );
+    const event = await eventModel.addEvent({
+      name,
+      status,
+      theme,
+      description,
+      address,
+      rooms,
+      arrivalNotes,
+      logoUrl,
+      venue,
+      startDatetime,
+      endDatetime,
+    });
     res.status(201).json(event);
   } catch (err) {
     handleError(err, res);
