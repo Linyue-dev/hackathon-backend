@@ -5,6 +5,7 @@ import type { IdParams } from "../utils/types.js";
 import { parsePagination } from "../utils/pagination.js";
 import { authenticate, requireAdmin } from "../middleware/authenticate.js";
 import { AppError } from "../errors/AppError.js";
+import { sendMail } from "../utils/mailService.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -24,23 +25,25 @@ router.delete("/users/:id", authenticate, requireAdmin, deleteUser);
 
 /**
  * POST /users/add
- * Create an account for a member of the organizing team.
- * Body: firstName, lastName, email, password (required), phone (optional).
- * A "role" in the body is ignored. The email must be valid and unique.
+ * Create an account for someone. The account is active at once and has no
+ * password: the person is emailed and sets one with Forgot password.
+ * Body: firstName, lastName, email (required), phone (optional).
+ * A "role" or "password" in the body is ignored. The email must be valid and
+ * unique.
  * Returns 201 with the user.
  * Errors: 400 invalid input or email already used.
  */
 async function createUser(req: Request, res: Response) {
   try {
     // Only these fields are read. A "role" in the body is ignored.
-    const { firstName, lastName, email, password, phone } = req.body ?? {};
-    const user = await userModel.addUser({
+    const { firstName, lastName, email, phone } = req.body ?? {};
+    const user = await userModel.addUserByAdmin({
       firstName,
       lastName,
       email,
-      password,
       phone,
     });
+    await sendAccountCreated(user.email);
     res.status(201).json(user);
   } catch (err) {
     handleError(err, res);
@@ -151,14 +154,41 @@ async function changeUserRole(req: Request<IdParams>, res: Response) {
 /**
  * DELETE /users/:id
  * Remove a user from the organizing team. Returns 200 with { message, user }.
- * Errors: 400 if the user does not exist.
+ * Errors: 400 if the user does not exist, or the first admin.
+ * 403 cannot_delete_self - an admin cannot delete their own account.
  */
 async function deleteUser(req: Request<IdParams>, res: Response) {
   try {
+    if (req.params.id === req.auth!.userId)
+      throw new AppError(
+        403,
+        "cannot_delete_self",
+        "You cannot delete your own account",
+      );
     const user = await userModel.deleteUserById(req.params.id);
     res.json({ message: "User deleted", user });
   } catch (err) {
     handleError(err, res);
+  }
+}
+
+// ============ Helpers ============
+
+/**
+ * Tell a person that an account was created for them. There is no code here:
+ * they ask for one with Forgot password. A failed email is only logged, the
+ * account is already created.
+ */
+async function sendAccountCreated(email: string): Promise<void> {
+  try {
+    await sendMail({
+      recipientEmail: email,
+      subject: "Your JacHacks Judging account",
+      text: "An account was created for you. To set your password, open the sign-in page, choose Forgot password and enter this email address.",
+      html: "<p>An account was created for you.</p><p>To set your password, open the sign-in page, choose <b>Forgot password</b> and enter this email address.</p>",
+    });
+  } catch (err) {
+    console.error("Could not send the account email:", err);
   }
 }
 

@@ -185,6 +185,67 @@ export async function addUser(input: NewUserInput): Promise<PublicUser> {
   }
 }
 
+/**
+ * Create an account for someone else (used by an admin). The account is active
+ * at once and has no usable password: the person sets one with Forgot password.
+ * Any existing account with the same email blocks it.
+ */
+export async function addUserByAdmin(
+  input: Omit<NewUserInput, "password">,
+): Promise<PublicUser> {
+  if (!usersCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  const { firstName, lastName, email, phone } = input;
+
+  if (!firstName)
+    throw new InvalidInputError("Invalid input: user firstName is empty");
+  if (!lastName)
+    throw new InvalidInputError("Invalid input: user lastName is empty");
+  if (!email) throw new InvalidInputError("Invalid input: user email is empty");
+  if (!isValidEmail(email))
+    throw new InvalidInputError(
+      `Invalid input: '${email}' is not a valid email`,
+    );
+
+  const normalizedEmail = normalizeEmail(email);
+
+  try {
+    const existing = await usersCollection.findOne({ email: normalizedEmail });
+    if (existing)
+      throw new InvalidInputError(
+        `An account with the email ${email} already exists`,
+      );
+
+    const now = new Date();
+    const user: User = {
+      firstName,
+      lastName,
+      email: normalizedEmail,
+      passwordHash: await bcrypt.hash(
+        randomBytes(24).toString("hex"),
+        SALT_ROUNDS,
+      ),
+      phone,
+      role: "viewer",
+      status: "active",
+      isLimited: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await usersCollection.insertOne(user);
+    return toPublicUser(user);
+  } catch (err: unknown) {
+    if (err instanceof InvalidInputError) throw err;
+    else if (err instanceof Error)
+      throw new DatabaseError(
+        "Database error: unable to insert user; " + err.message,
+      );
+    else throw new Error("Unknown error: " + err);
+  }
+}
+
 //#endregion
 
 //#region Get functions
