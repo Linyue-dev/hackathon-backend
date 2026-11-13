@@ -125,8 +125,9 @@ export function authorizeByAssignment(required: EventLevel, param = "id") {
 
 /**
  * For the routes with :judgeId that a judge uses. An admin, an organizer or an
- * owner of the event can always act. The judge whose login account is the
- * caller can act until judging ends. Use after authenticate.
+ * owner of the event can always act.
+ * The judge whose login account is the caller can act; a code account stops
+ * working when judging ends. Use after authenticate.
  */
 export function authorizeJudge(getEventId: EventIdResolver) {
   return async function <P>(
@@ -146,9 +147,10 @@ export function authorizeJudge(getEventId: EventIdResolver) {
       // An organizer or owner of the event can always act.
       if (level && RANK[level] >= RANK.organizer) return next();
 
-      // The judge themself can act until judging ends.
+      // The judge themself. A code account stops working when judging ends;
+      // writes are closed for everybody by assertJudgingOpen.
       if (judge.userId && judge.userId === req.auth.userId && level) {
-        if (event.judgingEndedAt)
+        if (req.auth.isLimited && event.judgingEndedAt)
           throw new AppError(
             403,
             "code_expired",
