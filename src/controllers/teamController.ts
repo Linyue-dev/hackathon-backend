@@ -12,6 +12,8 @@ import { authorizeJudge, eventFromTeam } from "../middleware/authorize.js";
 import * as teamEntryModel from "../models/TeamEntry.js";
 import type { TeamEntry } from "../models/TeamEntry.js";
 import type { WithId } from "mongodb";
+import * as teamImportModel from "../models/TeamImport.js";
+import * as eventModel from "../models/Event.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -38,6 +40,20 @@ router.get(
   authenticate,
   authorizeJudge(eventFromTeam("teamId")),
   getAwardsToJudge,
+);
+
+router.post(
+  "/events/:id/importTeams/fromCsv",
+  authenticate,
+  authorize("organizer"),
+  express.text({ type: "text/csv", limit: "10mb" }),
+  importTeams,
+);
+router.get(
+  "/events/:id/lastImportDiffs",
+  authenticate,
+  authorize("organizer"),
+  getLastImportDiffs,
 );
 
 // ============ Handlers ============
@@ -210,6 +226,45 @@ async function getAwardsToJudge(
         type: a.type,
       })),
     );
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * POST /events/:id/importTeams/fromCsv
+ * Import teams from a Devpost CSV export. :id is the event id.
+ * Body: the CSV text, with the header Content-Type: text/csv.
+ * Draft projects are skipped. A project already imported (same project_id)
+ * is updated; a new one is created. Each prize in opt_in_prizes becomes a
+ * team entry when the event has an award with that name.
+ * Returns 200 with the teams of this CSV.
+ * The differences are saved and read with GET /events/:id/lastImportDiffs.
+ * Errors: 400 empty or invalid CSV, missing column, or event not found.
+ */
+async function importTeams(req: Request<IdParams>, res: Response) {
+  try {
+    const teams = await teamImportModel.importTeamsFromCsv(
+      req.params.id,
+      req.body,
+    );
+    res.json(teams);
+  } catch (err) {
+    handleError(err, res);
+  }
+}
+
+/**
+ * GET /events/:id/lastImportDiffs
+ * What changed in the last CSV import of the event:
+ * { importedAt, added, updated, missing, unknownPrizes }.
+ * Returns 200 with null if the event was never imported.
+ * Errors: 400 if the event does not exist.
+ */
+async function getLastImportDiffs(req: Request<IdParams>, res: Response) {
+  try {
+    const event = await eventModel.getEventById(req.params.id);
+    res.json(event.lastImportDiffs ?? null);
   } catch (err) {
     handleError(err, res);
   }

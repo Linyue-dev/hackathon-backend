@@ -18,6 +18,7 @@ import {
 import { DEFAULT_LIMIT, Pagination } from "../utils/pagination.js";
 import { AppError } from "../errors/AppError.js";
 import * as userModel from "./User.js";
+import type { ImportDiffs } from "./TeamImport.js";
 
 let client: MongoClient;
 export let eventsCollection: Collection<Event>;
@@ -62,6 +63,8 @@ export interface Event {
   // owner rights in every event. Older events may not have these fields.
   owners?: string[];
   organizers?: string[];
+  // What changed in the last Devpost CSV import; set only by the import
+  lastImportDiffs?: ImportDiffs;
 }
 
 export interface NewEventInput {
@@ -495,6 +498,19 @@ export async function assertJudgingOpen(eventId: string): Promise<void> {
     "Judging has not started for this event",
   );
 }
+
+/**
+ * Save the differences of the last CSV import on the event.
+ * Replaces the differences of the import before.
+ */
+export async function setLastImportDiffs(
+  eventId: string,
+  diffs: ImportDiffs,
+): Promise<void> {
+  const event = await getEventById(eventId);
+  await saveEventChanges(event._id, { lastImportDiffs: diffs });
+}
+
 //#endregion
 
 //#region Owners and organizers

@@ -283,10 +283,21 @@ export async function getJudgedAwardsOfEvent(
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve the awards to judge",
     );
+  }
+}
 
-
-
-    
+/** All the awards of an event, without paging (used by the CSV import). */
+export async function getAwardsOfEvent(
+  eventId: string,
+): Promise<WithId<Award>[]> {
+  if (!awardsCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  try {
+    return await awardsCollection.find({ eventId }).toArray();
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to retrieve the awards of the event",
+    );
   }
 }
 

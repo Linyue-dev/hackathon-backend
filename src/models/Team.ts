@@ -288,6 +288,21 @@ export async function getAllTeams(
   }
 }
 
+/** The teams of an event that came from a Devpost import. */
+export async function getDevpostTeamsOfEvent(
+  eventId: string,
+): Promise<WithId<Team>[]> {
+  if (!teamsCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  try {
+    return await teamsCollection.find({ eventId, source: "devpost" }).toArray();
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to retrieve the imported teams",
+    );
+  }
+}
+
 //#endregion
 
 //#region Update functions
