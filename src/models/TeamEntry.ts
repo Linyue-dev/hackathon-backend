@@ -159,6 +159,21 @@ export async function getTeamEntryById(id: string): Promise<WithId<TeamEntry>> {
   }
 }
 
+/** All the entries of one team. */
+export async function getEntriesOfTeam(
+  teamId: string,
+): Promise<WithId<TeamEntry>[]> {
+  if (!teamEntriesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  try {
+    return await teamEntriesCollection.find({ teamId }).toArray();
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to retrieve the team's entries",
+    );
+  }
+}
+
 //#endregion
 
 //#region Update functions

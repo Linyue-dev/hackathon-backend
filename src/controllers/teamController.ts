@@ -9,6 +9,7 @@ import { authorize, authorizeByTeam } from "../middleware/authorize.js";
 import * as awardModel from "../models/Award.js";
 import * as eventJudgeModel from "../models/EventJudge.js";
 import { authorizeJudge, eventFromTeam } from "../middleware/authorize.js";
+import * as teamEntryModel from "../models/TeamEntry.js";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -96,24 +97,36 @@ async function getTeams(req: Request<IdParams>, res: Response) {
 
 /**
  * GET /teams/:id
- * The team page: the team's own fields, plus the scores so far.
- * Returns 200 with the team and a list "judges":
- * [{ judgeId, judgeName, interimSubmittedAt, finalSubmittedAt,
+ * The team page: the team's own fields, the challenges it applied for, and
+ * the scores so far.
+ * Returns 200 with the team and two lists:
+ *  - "challenges": [{ _id, awardId, awardName, status, evidence, verifiedBy,
+ *    verifiedAt, note }]. awardName is null if the award was deleted.
+ *  - "judges": [{ judgeId, judgeName, interimSubmittedAt, finalSubmittedAt,
  *    awards: [{ awardId, criteriaScores, comments, total, maxTotal, version, updatedAt }] }].
- * Only judges who have saved a score for this team are listed; drafts are
- * included, and interimSubmittedAt tells whether the judge has submitted.
- * Note: challenges and criteria need TeamEntry and are not returned yet.
+ *    Only judges who have saved a score for this team are listed; drafts are
+ *    included, and interimSubmittedAt tells whether the judge has submitted.
  * Errors: 400 if the team does not exist.
  */
 async function getTeamById(req: Request<IdParams>, res: Response) {
   try {
     const team = await teamModel.getTeamById(req.params.id);
+    const entries = await teamEntryModel.getEntriesOfTeam(req.params.id);
+    // A deleted award gives null instead of failing the whole page
+    const awards = await Promise.all(
+      entries.map((e) => awardModel.getAwardById(e.awardId).catch(() => null)),
+    );
+    const challenges = entries.map((e, i) => ({
+      ...e,
+      awardName: awards[i]?.name ?? null,
+    }));
     const judges = await scoreModel.getScoresByTeam(req.params.id);
-    res.json({ ...team, judges });
+    res.json({ ...team, challenges, judges });
   } catch (err) {
     handleError(err, res);
   }
 }
+
 /**
  * PATCH /teams/:id
  * Change some fields of a team. Send only the fields to change.
