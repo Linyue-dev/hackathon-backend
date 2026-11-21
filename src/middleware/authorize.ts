@@ -6,6 +6,7 @@ import * as judgeModel from "../models/Judge.js";
 import * as judgingAssignmentModel from "../models/JudgingAssignment.js";
 import { handleError } from "../utils/errorHandler.js";
 import { AppError } from "../errors/AppError.js";
+import * as teamEntryModel from "../models/TeamEntry.js";
 
 export type EventLevel = "viewer" | "organizer" | "owner";
 const RANK: Record<EventLevel, number> = { viewer: 1, organizer: 2, owner: 3 };
@@ -65,6 +66,14 @@ export const eventFromAssignment =
     (await judgingAssignmentModel.getJudgingAssignmentById(params[param] ?? ""))
       .eventId;
 
+/** The path has a team entry id; the event is the event of the entry's award. */
+export const eventFromTeamEntry =
+  (param = "id"): EventIdResolver =>
+  async ({ params }) => {
+    const entry = await teamEntryModel.getTeamEntryById(params[param] ?? "");
+    return (await awardModel.getAwardById(entry.awardId)).eventId;
+  };
+
 //#endregion
 
 function getContext<P>(req: Request<P>) {
@@ -121,6 +130,10 @@ export function authorizeByAward(required: EventLevel, param = "id") {
 
 export function authorizeByAssignment(required: EventLevel, param = "id") {
   return authorizeVia(required, eventFromAssignment(param));
+}
+
+export function authorizeByTeamEntry(required: EventLevel, param = "id") {
+  return authorizeVia(required, eventFromTeamEntry(param));
 }
 
 /**

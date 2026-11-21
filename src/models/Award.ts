@@ -283,6 +283,10 @@ export async function getJudgedAwardsOfEvent(
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve the awards to judge",
     );
+
+
+
+    
   }
 }
 

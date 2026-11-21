@@ -16,6 +16,7 @@ const controllers: string[] = [
   "scoreController",
   "resultController",
   "authController",
+  "teamEntryController.js",
 ];
 
 async function registerControllers() {

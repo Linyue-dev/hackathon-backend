@@ -10,6 +10,8 @@ import * as eventJudgeModel from "./models/EventJudge.js";
 import * as scoreModel from "./models/Score.js";
 import * as sponsorChoiceModel from "./models/SponsorChoice.js";
 import * as verificationCodeModel from "./models/VerificationCode.js";
+import * as teamEntryModel from "./models/TeamEntry.js";
+
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
@@ -42,6 +44,7 @@ async function startServer() {
     await scoreModel.initialize(MONGO_URI, DB_NAME, false);
     await sponsorChoiceModel.initialize(MONGO_URI, DB_NAME, false);
     await verificationCodeModel.initialize(MONGO_URI, DB_NAME, false);
+    await teamEntryModel.initialize(MONGO_URI, DB_NAME, false);
 
     app.listen(PORT, () => {
       console.log(`✅ Server is running on http://localhost:${PORT}`);
