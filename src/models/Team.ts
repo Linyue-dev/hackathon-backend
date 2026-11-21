@@ -74,6 +74,9 @@ export interface NewTeamInput {
 export interface TeamFilter {
   status?: string;
   search?: string;
+  // If set, only return the teams with these ids.
+  // The controller fills it from TeamEntry for the awardId and verification filters.
+  teamIds?: string[];
 }
 
 const TEAM_STATUSES = ["active", "disqualified", "withdrawn"] as const;
@@ -255,7 +258,8 @@ export async function getAllTeams(
   if (!teamsCollection)
     throw new DatabaseError("Database Collection object not initialized");
 
-  const { status, search } = filter;
+  const { status, search, teamIds } = filter;
+
   if (status !== undefined && !isValidStatus(status))
     throw new InvalidInputError(
       `Invalid input: status '${status}' is not valid`,
@@ -264,6 +268,7 @@ export async function getAllTeams(
   const query: Filter<Team> = { eventId };
   if (status) query.status = status;
   if (search) query.name = { $regex: escapeRegex(search), $options: "i" };
+  if (teamIds) query._id = { $in: teamIds.map((id) => new ObjectId(id)) };
 
   try {
     const [teams, total] = await Promise.all([

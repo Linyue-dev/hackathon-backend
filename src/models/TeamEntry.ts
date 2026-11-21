@@ -5,6 +5,7 @@ import {
   Collection,
   ObjectId,
   WithId,
+  Filter,
 } from "mongodb";
 import { InvalidInputError } from "../errors/InvalidInputError.js";
 import { DatabaseError } from "../errors/DatabaseError.js";
@@ -31,6 +32,8 @@ export interface TeamEntry {
 }
 
 const REVIEW_STATUSES = ["verified", "rejected"] as const;
+
+const ENTRY_STATUSES = ["pending", "verified", "rejected"] as const;
 
 /**
  * Connect to the database and prepare the team entries collection.
@@ -170,6 +173,53 @@ export async function getEntriesOfTeam(
   } catch (err) {
     throw new DatabaseError(
       "Database Error: issue when trying to retrieve the team's entries",
+    );
+  }
+}
+
+/** All the entries of several teams (used by the team list). */
+export async function getEntriesOfTeams(
+  teamIds: string[],
+): Promise<WithId<TeamEntry>[]> {
+  if (!teamEntriesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+  try {
+    return await teamEntriesCollection
+      .find({ teamId: { $in: teamIds } })
+      .toArray();
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to retrieve the teams' entries",
+    );
+  }
+}
+
+/**
+ * The ids of the teams that have an entry with this awardId and/or status.
+ * Throws InvalidInputError if status is not pending, verified or rejected.
+ */
+export async function getTeamIdsWithEntry(filter: {
+  awardId?: string;
+  status?: string;
+}): Promise<string[]> {
+  if (!teamEntriesCollection)
+    throw new DatabaseError("Database Collection object not initialized");
+
+  const { awardId, status } = filter;
+  if (status !== undefined && !ENTRY_STATUSES.some((s) => s === status))
+    throw new InvalidInputError(
+      `Invalid input: verification must be one of ${ENTRY_STATUSES.join(", ")}`,
+    );
+
+  const query: Filter<TeamEntry> = {};
+  if (awardId) query.awardId = awardId;
+  if (status) query.status = status as TeamEntry["status"];
+
+  try {
+    return await teamEntriesCollection.distinct("teamId", query);
+  } catch (err) {
+    throw new DatabaseError(
+      "Database Error: issue when trying to filter teams by entry",
     );
   }
 }

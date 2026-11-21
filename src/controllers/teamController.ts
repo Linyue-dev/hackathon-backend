@@ -10,6 +10,8 @@ import * as awardModel from "../models/Award.js";
 import * as eventJudgeModel from "../models/EventJudge.js";
 import { authorizeJudge, eventFromTeam } from "../middleware/authorize.js";
 import * as teamEntryModel from "../models/TeamEntry.js";
+import type { TeamEntry } from "../models/TeamEntry.js";
+import type { WithId } from "mongodb";
 
 const router = express.Router();
 export const routeRoot = "/api/v1";
@@ -67,29 +69,54 @@ async function createTeam(req: Request<IdParams>, res: Response) {
 }
 
 /**
- * GET /events/:id/teams?status=&search=&page=&limit=
+ * GET /events/:id/teams?status=&search=&awardId=&verification=&page=&limit=
  * List the teams of an event, newest first. :id is the event id.
  * status: "active", "disqualified" or "withdrawn".
  * search matches the team name (partial, not case-sensitive).
+ * awardId: only the teams that applied for this award.
+ * verification: "pending", "verified" or "rejected": only the teams that have
+ * an entry with this status (for this award when awardId is also sent).
+ * Each team has a list "challenges" (same as on the team page).
  * Returns 200 with a plain array. The total number of matches is in the
  * X-Total-Count response header.
- * Note: the filters awardId and verification are not available yet.
- * Errors: 400 invalid status.
+ * Errors: 400 invalid status or verification.
  */
 async function getTeams(req: Request<IdParams>, res: Response) {
   try {
-    const { status, search, page, limit } = req.query;
+    const { status, search, awardId, verification, page, limit } = req.query;
+
+    // Filter by entry only when awardId or verification is sent
+    let teamIds: string[] | undefined;
+    if (typeof awardId === "string" || typeof verification === "string") {
+      teamIds = await teamEntryModel.getTeamIdsWithEntry({
+        awardId: typeof awardId === "string" ? awardId : undefined,
+        status: typeof verification === "string" ? verification : undefined,
+      });
+    }
+
     const { teams, total } = await teamModel.getAllTeams(
       req.params.id,
       {
         status: typeof status === "string" ? status : undefined,
         search: typeof search === "string" ? search : undefined,
+        teamIds,
       },
       parsePagination(page, limit),
     );
+
+    const entries = await teamEntryModel.getEntriesOfTeams(
+      teams.map((t) => String(t._id)),
+    );
+    const challenges = await withAwardNames(entries);
+
     // Total number of matches goes in a header; the body stays a plain array
     res.set("X-Total-Count", String(total));
-    res.json(teams);
+    res.json(
+      teams.map((t) => ({
+        ...t,
+        challenges: challenges.filter((c) => c.teamId === String(t._id)),
+      })),
+    );
   } catch (err) {
     handleError(err, res);
   }
@@ -112,14 +139,7 @@ async function getTeamById(req: Request<IdParams>, res: Response) {
   try {
     const team = await teamModel.getTeamById(req.params.id);
     const entries = await teamEntryModel.getEntriesOfTeam(req.params.id);
-    // A deleted award gives null instead of failing the whole page
-    const awards = await Promise.all(
-      entries.map((e) => awardModel.getAwardById(e.awardId).catch(() => null)),
-    );
-    const challenges = entries.map((e, i) => ({
-      ...e,
-      awardName: awards[i]?.name ?? null,
-    }));
+    const challenges = await withAwardNames(entries);
     const judges = await scoreModel.getScoresByTeam(req.params.id);
     res.json({ ...team, challenges, judges });
   } catch (err) {
@@ -193,6 +213,14 @@ async function getAwardsToJudge(
   } catch (err) {
     handleError(err, res);
   }
+}
+
+/** Add the award name to each entry. A deleted award gives null. */
+async function withAwardNames(entries: WithId<TeamEntry>[]) {
+  const awards = await Promise.all(
+    entries.map((e) => awardModel.getAwardById(e.awardId).catch(() => null)),
+  );
+  return entries.map((e, i) => ({ ...e, awardName: awards[i]?.name ?? null }));
 }
 
 export default router;
